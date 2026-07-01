@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*
+# the placeholder template IS safe to publish
+!.env.example
 
 # OS cruft
 .DS_Store
