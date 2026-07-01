@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  html{scroll-snap-type:y proximity;scroll-behavior:smooth}  /* gently anchor sections to the view */
+  body{background:#F5F2EC;color:#1A1814;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"liga" 1,"kern" 1,"calt" 1;}
+  @keyframes wcspin{to{transform:rotate(360deg)}}
+  @keyframes wcfade{from{opacity:0}to{opacity:1}}
+  .wcbar{transition:width 220ms cubic-bezier(.2,.7,.2,1)}
+  .wcrow{transition:background-color 140ms ease-out}
+  .wcbtn{transition:color 140ms ease-out,border-color 140ms ease-out,background-color 140ms ease-out}
+  ::-webkit-scrollbar{height:11px;width:11px}
+  ::-webkit-scrollbar-thumb{background:rgba(120,110,95,.35);border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  /* timeline scrubber — minimal, thin track + accent thumb */
+  .wc-tl{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:pointer;margin:0;display:block}
+  .wc-tl:disabled{cursor:default}
+  .wc-tl::-webkit-slider-runnable-track{height:2px;border-radius:2px;background:var(--wc-track)}
+  .wc-tl::-moz-range-track{height:2px;border-radius:2px;background:var(--wc-track)}
+  .wc-tl::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:15px;height:15px;border-radius:50%;background:var(--wc-thumb);border:2px solid var(--wc-surface);box-shadow:0 1px 3px rgba(0,0,0,.28);margin-top:-6.5px;cursor:pointer;transition:background 140ms}
+  .wc-tl::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--wc-thumb);border:2px solid var(--wc-surface);box-shadow:0 1px 3px rgba(0,0,0,.28);cursor:pointer}
+  .wc-tl:disabled::-webkit-slider-thumb{box-shadow:none;cursor:default}
+  .wc-tl:disabled::-moz-range-thumb{box-shadow:none;cursor:default}
+</style>
+<script src="wc-thirds.js"></script>
+<script src="wc-data.js"></script>
+<script src="wc-engine.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js"></script>
+</helmet>
+<div style="{{ rootStyle }}">
+  <header style="{{ headerStyle }}">
+    <div style="display:flex;align-items:baseline;gap:14px;min-width:0">
+      <div style="font-weight:800;font-size:16px;letter-spacing:-0.01em;white-space:nowrap">FIFA World Cup <span style="font-weight:300">2026</span></div>
+      <div style="font-size:11px;letter-spacing:0.22em;text-transform:uppercase;opacity:0.5;white-space:nowrap" data-screen-label="masthead">{{ tagline }}</div>
+    </div>
+    {{ controls }}
+  </header>
+  {{ app }}
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:840}}">
+class Component extends DCLogic {
+  constructor(p){
+    super(p);
+    let tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch(e){}
+    this.state = {
+      loaded:false, computing:false, data:null, standings:null, clinch:{}, sim:null, thirds:[],
+      theme:'light', accent:'#42D674', lang:'en',
+      highlights:[], hoverTeam:null, selectedTeam:null,
+      menu:null, menuAnchor:null, teamMenu:null, showBest3:false,
+      convertTz:false, tzTarget:tz, autoTz:tz,
+      youPlay:false, picks:{}, themeBeforePlay:null,
+      timeline:false, tlIso:null,
+      debug:false, dbg:{ field:14, normalH:7, between:18, thick:1, selH:31, selW:4.5, rowH:162, cardV:0, scale:1,
+        tlTop:12, tlBot:16, lblTop:0, lblBot:0, tlScale:0.65, tlTitleGap:6, tlLen:1600, tlBtn:26, colGap:116,
+        tsTeam:18, tsSub:11, tsDetail:14, tsScore:17, tsSmall:1, snapTop:72, gsText:0.85, embTop:250, embScale:1,
+        chTop:128, chScale:1.35 },
+      dbgPos:null,
+      refreshing:false, lastUpdated:null,
+      source:'demo', generatedAt:null, koReal:{}, koByTeam:{},
+      autoRefresh:true,
+      vsY:{}, cardGeom:{}, bkW:null, bkSide:'L',
+    };
+  }
+  // Measure each large card's "vs." divider so connectors exit at that exact line.
+  // Coordinates are divided by the current bracket scale (the bracket is transform-
+  // scaled to fit), so the unscaled SVG connector space stays correct.
+  measureVs(){
+    if(this.state.youPlay){
+      const ns = {};
+      if(this.state.vsY && Object.keys(this.state.vsY).length) ns.vsY = {};
+      if(this.state.cardGeom && Object.keys(this.state.cardGeom).length) ns.cardGeom = {};
+      if(Object.keys(ns).length) this.setState(ns);
+      return;
+    }
+    const cont = document.getElementById('wc-bk-inner');
+    if(!cont) return;
+    const s = this._bkScale || 1;
+    const cr = cont.getBoundingClientRect();
+    const prev = this.state.vsY || {};
+    const map = {}; let changed = false;
+    cont.querySelectorAll('.wc-vsline').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      const slot = el.getAttribute('data-slot');
+      map[slot] = (r.top - cr.top + r.height/2)/s;
+      if(Math.abs((prev[slot]==null?-99999:prev[slot]) - map[slot]) > 0.5) changed = true;
+    });
+    if(Object.keys(map).length !== Object.keys(prev).length) changed = true;
+    // per-large-card box + its vs-line offset, so the card border can break exactly
+    // where the connector leaves (at the vs-line), in the card's own unscaled space.
+    const pg = this.state.cardGeom || {};
+    const geom = {}; let gChanged = false;
+    cont.querySelectorAll('.wc-bigcard').forEach(el=>{
+      const slot = el.getAttribute('data-card'); const vs = el.querySelector('.wc-vsline');
+      if(!vs) return;
+      const br = el.getBoundingClientRect(), vr = vs.getBoundingClientRect();
+      const g = { w:br.width/s, h:br.height/s, vy:(vr.top + vr.height/2 - br.top)/s, side:el.getAttribute('data-side') };
+      geom[slot] = g; const p = pg[slot];
+      if(!p || Math.abs(p.w-g.w)>0.5 || Math.abs(p.h-g.h)>0.5 || Math.abs(p.vy-g.vy)>0.5 || p.side!==g.side) gChanged = true;
+    });
+    if(Object.keys(geom).length !== Object.keys(pg).length) gChanged = true;
+    const ns = {};
+    if(changed) ns.vsY = map;
+    if(gChanged) ns.cardGeom = geom;
+    if(Object.keys(ns).length) this.setState(ns);
+  }
+  // Available width for the bracket → drives the fit-to-width scale + narrow mode.
+  measureBracket(){
+    const el = document.getElementById('wc-bk-outer');
+    if(!el) return;
+    const w = el.clientWidth;
+    if(w && Math.abs((this.state.bkW||0) - w) > 1) this.setState({bkW:w});
+  }
+  remeasure(){ requestAnimationFrame(()=>{ this.measureBracket(); this.measureVs(); }); }
+  componentDidMount(){
+    const wait = ()=>{
+      if(window.WC && window.WCEngine){ this.load(true); }
+      else setTimeout(wait, 60);
+    };
+    wait();
+    this._onDocClick = (e)=>{
+      if(this.state.menu && !e.target.closest('[data-wc-menu]') && !e.target.closest('[data-wc-menubtn]')) this.setState({menu:null});
+    };
+    document.addEventListener('click', this._onDocClick);
+    this._onResize = ()=>{ this.remeasure(); };
+    window.addEventListener('resize', this._onResize);
+    setTimeout(()=>this.remeasure(), 500);
+    // refresh as soon as the tab becomes visible again, then resume polling
+    this._onVis = ()=>{ if(!document.hidden){ this.schedulePoll(2000); } };
+    document.addEventListener('visibilitychange', this._onVis);
+    this.schedulePoll();
+    // debug panel: type "debug" anywhere, or call wcDebug() in the console
+    window.wcDebug = ()=>this.setState({debug:!this.state.debug});
+    this._dbgBuf = '';
+    this._onKey = (e)=>{ if(e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+      this._dbgBuf = (this._dbgBuf + (e.key||'')).slice(-5).toLowerCase();
+      if(this._dbgBuf==='debug'){ this._dbgBuf=''; this.setState({debug:!this.state.debug}); } };
+    document.addEventListener('keydown', this._onKey);
+    this.applyScrollPad();
+  }
+  // Offset where scroll-snap / anchor scrolling lands section tops, so they clear the
+  // sticky header. scroll-padding-top on the scroll root is the reliable mechanism here
+  // (per-target scroll-margin under `proximity` snapping was inconsistent).
+  applyScrollPad(){
+    const v = (this.state.dbg && this.state.dbg.snapTop!=null) ? this.state.dbg.snapTop : 60;
+    try { document.documentElement.style.scrollPaddingTop = v+'px'; } catch(e){}
+  }
+  componentDidUpdate(){ this.remeasure(); this.applyScrollPad(); }
+  componentWillUnmount(){
+    document.removeEventListener('click', this._onDocClick);
+    window.removeEventListener('resize', this._onResize);
+    document.removeEventListener('visibilitychange', this._onVis);
+    document.removeEventListener('keydown', this._onKey);
+    clearTimeout(this._pollTimer);
+  }
+  /* ---------- auto-refresh polling ---------- */
+  // The SERVER keeps wc-live.json fresh on its own timer; the client just re-reads it
+  // (cheap, local, can't hang). Cadence is short because re-reading a file is light.
+  nextPollDelay(){
+    const S = this.state;
+    if(!S.data) return 30000;
+    const live = (S.data.knockoutFixtures||[]).some(k=>k.status==='live')
+      || (S.data.groupMatches||[]).some(m=>m.status==='live');
+    if(live) return 15000;                                   // 15s during live play
+    const now = Date.now();
+    const near = Object.values(S.koSched||{}).some(t=>{ const d=new Date(t).getTime()-now; return d>-3*3600000 && d<40*60000; });
+    return near ? 25000 : 45000;                             // 25s near a kickoff, else 45s
+  }
+  schedulePoll(delay){
+    clearTimeout(this._pollTimer);
+    this._pollTimer = setTimeout(()=>this.poll(), delay!=null?delay:this.nextPollDelay());
+  }
+  poll(){
+    // self-heal: never let a stuck refresh flag freeze polling
+    if(this.state.refreshing && this._refreshAt && Date.now()-this._refreshAt > 20000){
+      this.setState({refreshing:false});
+    }
+    if(!document.hidden && this.state.loaded && this.state.autoRefresh && !this.state.refreshing){
+      this.load(false);     // re-read the snapshot the server keeps fresh
+    }
+    this.schedulePoll();
+  }
+
+  load(initial){
+    this._refreshAt = Date.now();
+    this.setState({ computing:initial, refreshing:!initial });
+    setTimeout(async ()=>{
+      let data;
+      try { data = await window.WC.fetchTournamentState(); }
+      catch(e){ console.error('[WC] adapter failed', e); this.setState({computing:false, refreshing:false}); this.schedulePoll(); return; }
+      // nothing changed since last load → skip the heavy recompute, just keep polling
+      if(!initial && data.generatedAt && data.generatedAt === this.state.generatedAt){
+        this.setState({ computing:false, refreshing:false });
+        this.schedulePoll();
+        return;
+      }
+      const standings = window.WCEngine.allStandings(data.groupMatches);
+      const clinch = {};
+      window.WC.GROUPS.forEach(g=>{ clinch[g] = window.WCEngine.clinchStatus(g, data.groupMatches); });
+      const thirds = window.WCEngine.rankThirds(standings);
+      const sim = window.WCEngine.simulate(data.groupMatches, data.knockout, window.WC.simulation.runs);
+      // index real knockout fixtures: by team-pair (exact) AND by each team (anchor),
+      // so a result can be found even if our predicted opponent differs from reality.
+      const koReal = {}, koByTeam = {};
+      (data.knockoutFixtures||[]).forEach(k=>{
+        if(!k.home || !k.away) return;
+        koReal[k.round+'|'+[k.home,k.away].sort().join('-')] = k;
+        koByTeam[k.round+'|'+k.home] = k;
+        koByTeam[k.round+'|'+k.away] = k;
+      });
+      // map each knockout slot → its real scheduled kickoff (round's times sorted by
+      // utcDate ↔ slots sorted by match number), so every round shows a real time.
+      const koSched = {};
+      const sched = data.koByRound || {};
+      ['R32','R16','QF','SF','F','TP'].forEach(round=>{
+        const arr = sched[round]; if(!arr || !arr.length) return;
+        const slots = data.knockout.filter(k=>k.round===round).sort((a,b)=>a.matchNo-b.matchNo);
+        slots.forEach((k,i)=>{ if(arr[i]) koSched[k.slot] = arr[i]; });
+      });
+      // group stage fully decided? → bracket flips to its clean post-32 state (§6.4)
+      const groupDone = data.groupMatches.every(m=>m.status==='final');
+      const now = new Date();
+      this.setState({ loaded:true, computing:false, refreshing:false, data, standings, clinch, thirds, sim,
+        koReal, koByTeam, koSched, groupDone, source:data.source, generatedAt:data.generatedAt, lastUpdated: now });
+      this.schedulePoll();   // re-arm polling at the cadence implied by the fresh data
+    }, initial ? 30 : 260);
+  }
+  // Manual Refresh: force the server to pull NOW, then reload. Timeout-guarded so a
+  // slow/stuck /api/refresh can never freeze the button (we reload anyway after 9s).
+  refreshLive(){
+    if(this.state.refreshing) return;
+    this._refreshAt = Date.now();
+    this.setState({refreshing:true});
+    let done = false;
+    const finish = ()=>{ if(done) return; done = true; this.load(false); };
+    const t = setTimeout(finish, 9000);
+    fetch('/api/refresh',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null)
+      .then(()=>{ clearTimeout(t); finish(); });
+  }
+  // real knockout result for a resolved matchup, if one exists (live or final)
+  realKO(round, a, b){
+    if(!a || !b) return null;
+    return this.state.koReal[round+'|'+[a,b].sort().join('-')] || null;
+  }
+  // best kickoff instant for a knockout slot: the drawn fixture's real time, else
+  // the round's real scheduled time, else the encoded official time.
+  koInst(m, real){
+    return (real && real.kickoffUTC) || (this.state.koSched && this.state.koSched[m.slot]) || m.kickoffUTC || null;
+  }
+  // the team a feeder resolves to ONLY if it's certain (group winner/runner-up, or a
+  // confirmed prior-round winner) — used as a reliable anchor; null for a best-third.
+  certainTeam(feeder){
+    if(feeder.type==='groupWinner' || feeder.type==='groupRunnerUp') return this.resolveTeam(feeder);
+    if(feeder.type==='matchWinner'){
+      const fm = this.state.data.knockout.find(k=>k.slot===feeder.ref); if(!fm) return null;
+      const r = this.koFixtureFor(fm);
+      return (r && r.status==='final' && r.winnerId) ? r.winnerId : null;
+    }
+    return null;
+  }
+  // Find the real feed fixture for a slot — by exact pair, else by a certain anchor
+  // team (so a best-third misprediction can't hide a played result).
+  koFixtureFor(m){
+    const a=this.resolveTeam(m.homeFeeder), b=this.resolveTeam(m.awayFeeder);
+    const exact = this.realKO(m.round, a, b);
+    if(exact) return exact;
+    const T = this.state.koByTeam || {};
+    const cH = this.certainTeam(m.homeFeeder), cA = this.certainTeam(m.awayFeeder);
+    for(const t of [cH, cA]){ if(t && T[m.round+'|'+t]) return T[m.round+'|'+t]; }
+    return null;
+  }
+  // Resolve a slot to {real, sideA, sideB}: when a feed fixture exists, the feed's
+  // teams are ground truth, mapped to (home,away) sides via the certain anchor so the
+  // sub-labels stay correct even if the feed's home/away order differs.
+  slotMatch(m){
+    const real = this.koFixtureFor(m);
+    const aId=this.resolveTeam(m.homeFeeder), bId=this.resolveTeam(m.awayFeeder);
+    if(!real) return {real:null, sideA:aId, sideB:bId};
+    const feed=[real.home, real.away];
+    const cH=this.certainTeam(m.homeFeeder), cA=this.certainTeam(m.awayFeeder);
+    let sideA, sideB;
+    if(cH && feed.includes(cH)){ sideA=cH; sideB=feed.find(t=>t!==cH); }
+    else if(cA && feed.includes(cA)){ sideB=cA; sideA=feed.find(t=>t!==cA); }
+    else { sideA=real.home; sideB=real.away; }
+    return {real, sideA, sideB};
+  }
+
+  /* ---------- i18n ---------- */
+  get T(){
+    const en = { highlight:'Highlight a team', maxN:'8 max', groups:'Groups', bracket:'Bracket',
+      best3:'Best 3rd-placed teams', clinched:'Clinched', vs:'vs.', convert:'Convert times',
+      timezone:'Time zone', official:'Official local time', officialTimes:'Official Times', myTime:'My time', language:'Language', refresh:'Refresh',
+      screenshot:'Screenshot', light:'Light', dark:'Dark', updated:'Updated', yourPred:'Your prediction',
+      goBack:'Go back', tapAdvance:'Tap a side to pick the winner — build your bracket to the final',
+      winner:g=>`Group ${g} winner`, runnerUp:g=>`Group ${g} runner-up`,
+      thirdFrom:gs=>`3rd from Groups ${gs}`, squad:'Squad', staff:'Coaching staff',
+      played:'Played', record:'W / D / L', gf:'Goals for', ga:'Goals against', gd:'Goal difference',
+      yc:'Yellow', rc:'Red', rounds:{R32:'Round of 32',R16:'Round of 16',QF:'Quarter-finals',SF:'Semi-finals',F:'Final',TP:'Third place'},
+      pos:['Goalkeepers','Defenders','Midfielders','Attackers'], appsL:'Apps', minsL:'Mins',
+      thirdPlace:'3rd-place', pts:'Pts', noQual:'Eliminated', tagline:'Knockout Tracker & Predictor' };
+    const es = { highlight:'Destacar un equipo', maxN:'máx. 8', groups:'Grupos', bracket:'Cuadro', tagline:'Seguidor y Pronóstico de Eliminatorias',
+      best3:'Mejores terceros', clinched:'Clasificado', vs:'vs.', convert:'Convertir horas',
+      timezone:'Zona horaria', official:'Hora local oficial', officialTimes:'Horas oficiales', myTime:'Mi zona', language:'Idioma', refresh:'Actualizar',
+      screenshot:'Captura', light:'Claro', dark:'Oscuro', updated:'Actualizado', yourPred:'Tu pronóstico',
+      goBack:'Volver', tapAdvance:'Toca un lado para elegir al ganador — completa tu llave hasta la final',
+      winner:g=>`1.º Grupo ${g}`, runnerUp:g=>`2.º Grupo ${g}`,
+      thirdFrom:gs=>`3.º de los Grupos ${gs}`, squad:'Plantel', staff:'Cuerpo técnico',
+      played:'Jugados', record:'G / E / P', gf:'Goles a favor', ga:'Goles en contra', gd:'Diferencia',
+      yc:'Amarillas', rc:'Rojas', rounds:{R32:'Dieciseisavos',R16:'Octavos',QF:'Cuartos',SF:'Semifinales',F:'Final',TP:'Tercer puesto'},
+      pos:['Porteros','Defensas','Mediocampistas','Delanteros'], appsL:'PJ', minsL:'Min',
+      thirdPlace:'Tercer puesto', pts:'Pts', noQual:'Eliminado' };
+    return this.state.lang==='es' ? es : en;
+  }
+  nm(team){ return this.state.lang==='es' ? team.nameEs : team.name; }
+
+  /* ---------- colors ---------- */
+  rgba(hex,a){ const h=hex.replace('#',''); const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+  C(){
+    const light = this.state.theme!=='dark';
+    // dark theme uses a cool, slightly blue-grey undertone (not warm brown)
+    const surface = light?'#F5F2EC':'#0F1217';
+    const fg = light?'#1A1814':'#E9EDF3';
+    const a = this.state.accent;
+    return { light, surface, fg, accent:a, gold:'#C2A14D',
+      rule:this.rgba(fg, light?0.16:0.18), faint:this.rgba(fg,0.5), faint2:this.rgba(fg,0.34),
+      zone1:this.rgba(a,light?0.13:0.18), zone2:this.rgba(a,light?0.06:0.09),
+      track:this.rgba(fg,light?0.09:0.14), panel:light?'#FBF9F4':'#161B22',
+      cardLine:this.rgba(fg,light?0.12:0.16) };
+  }
+
+  /* ---------- time ---------- */
+  // format an absolute instant as time-of-day in the venue's zone (or the target zone)
+  fmtTimeAt(kickoffUTC, venueTz){
+    if(!kickoffUTC) return '';
+    const tz = this.state.convertTz ? this.state.tzTarget : (venueTz||'UTC');
+    try {
+      // 24-hour clock (no AM/PM). en-GB gives clean 24h digits but renders zones as a
+      // generic "GMT+7"; en-US gives the real abbreviation (PDT/EDT…), so append that.
+      const d = new Date(kickoffUTC);
+      const time = new Intl.DateTimeFormat(this.state.lang==='es'?'es':'en-GB',
+        {hour:'2-digit',minute:'2-digit',hour12:false,timeZone:tz}).format(d);
+      const abbr = this.tzAbbr(tz, d);
+      return abbr ? `${time} ${abbr}` : time;
+    } catch(e){ return ''; }
+  }
+  fmtTime(m){ return m ? this.fmtTimeAt(m.kickoffUTC, m.venueTz) : ''; }
+  // how a finished knockout match was decided: null (regular), "AET". Penalty shootouts
+  // show their result inline as the (n) suffix on each score tile, so no tag is emitted.
+  koTag(real){
+    if(!real || !real.duration || real.duration==='REGULAR' || (real.status!=='final' && real.status!=='live')) return null;
+    const es = this.state.lang==='es';
+    if(real.duration==='PENALTY_SHOOTOUT') return null;
+    if(real.duration==='EXTRA_TIME') return es?'PRÓRROGA':'AET';
+    return null;
+  }
+  // a score as a split-flap / flip-board tile: dark tile, heavy white digit, with a
+  // horizontal seam across the middle (the flap hinge) cutting through the number.
+  scoreBox(C, n, opts={}){
+    const h = React.createElement;
+    const fs = opts.size || (opts.big?23:17);
+    const hgt = Math.round(fs*1.72), minW = Math.round(fs*1.2);
+    return h('span',{style:{ position:'relative', display:'inline-flex', alignItems:'center', justifyContent:'center',
+      minWidth:minW, height:hgt, padding:'0 6px', borderRadius:5, overflow:'hidden',
+      background:'#141414', color:'#fafafa', fontWeight:800, letterSpacing:'-0.02em',
+      fontSize:fs, lineHeight:1, fontVariantNumeric:'tabular-nums', flex:'0 0 auto',
+      boxShadow:'inset 0 0 0 1px rgba(255,255,255,0.07), 0 1px 2px rgba(0,0,0,0.35)' }},
+      // stretch the digit vertically so it fills the tile like a real flip-board flap
+      h('span',{style:{position:'relative', zIndex:1, display:'block',
+        transform:'scaleY(1.15) scaleX(1.2) translateY(-0.4px)', transformOrigin:'center'}}, n),
+      // the hinge seam: a dark line at mid-height with a faint highlight under it
+      h('span',{style:{position:'absolute', left:0, right:0, top:'50%', height:2, marginTop:-1, zIndex:2,
+        background:'#000', boxShadow:'0 1px 0 rgba(255,255,255,0.06)'}}));
+  }
+  // Rounded border for a large match card, drawn as an SVG path that BREAKS on the
+  // connector edge (right for a left-half card, left for a right-half card) exactly at
+  // the vs-line — so the bracket line appears to emerge from the gap. Uses the card's
+  // own measured geometry (g.w/g.h/g.vy, unscaled), so it tracks the ancestor transform.
+  cardBorder(C, g, gapSide, color){
+    const h = React.createElement;
+    const W = g.w, H = g.h, R = 12, right = gapSide==='right';
+    const gh = Math.max(0, Math.min(13, g.vy-R-2, H-R-2-g.vy));   // half-gap, clamped off the corners
+    const vy = g.vy;
+    const d = right
+      ? `M ${W} ${vy+gh} L ${W} ${H-R} Q ${W} ${H} ${W-R} ${H} L ${R} ${H} Q 0 ${H} 0 ${H-R} L 0 ${R} Q 0 0 ${R} 0 L ${W-R} 0 Q ${W} 0 ${W} ${R} L ${W} ${vy-gh}`
+      : `M 0 ${vy-gh} L 0 ${R} Q 0 0 ${R} 0 L ${W-R} 0 Q ${W} 0 ${W} ${R} L ${W} ${H-R} Q ${W} ${H} ${W-R} ${H} L ${R} ${H} Q 0 ${H} 0 ${H-R} L 0 ${vy+gh}`;
+    return h('svg',{width:W,height:H,style:{position:'absolute',left:0,top:0,pointerEvents:'none',overflow:'visible'}},
+      h('path',{d, stroke:color||C.cardLine, strokeWidth:1.5, fill:'none', strokeLinejoin:'round', strokeLinecap:'round'}));
+  }
+  // score tile + a fixed-width slot for the penalty shoot-out tally. The slot is ALWAYS
+  // reserved (even for non-penalty matches, where it stays blank) so the score tiles line
+  // up horizontally across every card — leaving room for the (n) bracket where it applies.
+  scoreCell(C, g, opts, real, id){
+    const h = React.createElement;
+    const box = this.scoreBox(C, g, opts);
+    const fs = opts.size || 17;
+    const hasPK = real && real.duration==='PENALTY_SHOOTOUT' && real.penHome!=null;
+    const pk = hasPK ? ((id===real.home) ? real.penHome : real.penAway) : null;
+    const win = real && id===real.winnerId;
+    return h('span',{style:{display:'inline-flex',alignItems:'center',gap:Math.round(fs*0.24),flex:'0 0 auto'}}, box,
+      h('span',{style:{width:Math.round(fs*0.95),flex:'0 0 auto',textAlign:'left',whiteSpace:'nowrap',
+        fontSize:Math.round(fs*0.62),fontWeight:800,fontVariantNumeric:'tabular-nums',
+        color:win?C.fg:C.faint,lineHeight:1}}, pk!=null?('('+pk+')'):''));
+  }
+  // month/day derived from an absolute instant in the venue's zone (DST/zone-correct)
+  fmtDayAt(kickoffUTC, venueTz){
+    if(!kickoffUTC) return '';
+    const tz = this.state.convertTz ? this.state.tzTarget : (venueTz||'UTC');
+    try {
+      const es = this.state.lang==='es';
+      const parts = new Intl.DateTimeFormat(es?'es':'en-US',{month:'short',day:'numeric',timeZone:tz}).formatToParts(new Date(kickoffUTC));
+      const month = ((parts.find(p=>p.type==='month')||{}).value||'').replace(/\./g,'').slice(0,3).toUpperCase();
+      const day = (parts.find(p=>p.type==='day')||{}).value||'';
+      return es ? `${day} ${month}` : `${month} ${day}`;
+    } catch(e){ return ''; }
+  }
+  tzAbbr(tz, at){
+    try {
+      const parts = new Intl.DateTimeFormat('en-US',{timeZoneName:'short',timeZone:tz}).formatToParts(at||new Date());
+      return (parts.find(p=>p.type==='timeZoneName')||{}).value || tz;
+    } catch(e){ return tz; }
+  }
+  fmtMonthDay(iso){
+    const [mm,dd] = iso.split('-').map(Number);
+    const mon = (this.state.lang==='es'
+      ? ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC']
+      : ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'])[mm-1];
+    return this.state.lang==='es' ? `${dd} ${mon}` : `${mon} ${dd}`;
+  }
+  // city → official FIFA 2026 host-city code (2–3 letters; e.g. LA, KC, SF, NYC)
+  cityAbbr(city){
+    if(!city) return '';
+    const M = { 'Atlanta':'ATL','Boston':'BOS','Dallas':'DAL','Houston':'HOU','Kansas City':'KC',
+      'Los Angeles':'LA','Mexico City':'MEX','Miami':'MIA','Monterrey':'MTY','New York':'NYC',
+      'Philadelphia':'PHI','San Francisco':'SF','Seattle':'SEA','Toronto':'TOR','Vancouver':'VAN','Guadalajara':'GDL' };
+    return M[city] || city.replace(/[^A-Za-zÀ-ÿ]/g,'').slice(0,3).toUpperCase();
+  }
+  ord(n){ const s=['th','st','nd','rd'], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
+
+  /* ---------- highlight ---------- */
+  toggleHighlight(id){
+    let h = this.state.highlights.slice();
+    if(h.includes(id)) h = h.filter(x=>x!==id);
+    else if(h.length<8) h.push(id);
+    this.setState({highlights:h});
+  }
+  hlColor(id){ return this.state.highlights.includes(id) ? window.WC.byId[id].highlightColor : null; }
+  // gold stars = number of World Cup titles
+  wcStars(C, team, size){
+    if(!team || !team.wcTitles) return null;
+    return React.createElement('span',{title:team.wcTitles+' World Cup'+(team.wcTitles>1?'s':''),
+      style:{color:C.gold, fontSize:size||12, letterSpacing:'1.5px', whiteSpace:'nowrap', flex:'0 0 auto'}},
+      '★'.repeat(team.wcTitles));
+  }
+  // punch up a highlight colour (boost saturation, normalise lightness) for outlines/lines
+  vivid(hex){
+    if(!hex) return hex;
+    let s=hex.replace('#',''); if(s.length===3) s=s.split('').map(c=>c+c).join('');
+    let r=parseInt(s.slice(0,2),16)/255, g=parseInt(s.slice(2,4),16)/255, b=parseInt(s.slice(4,6),16)/255;
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b); let l=(mx+mn)/2, sat, hh;
+    if(mx===mn){ sat=0; hh=0; } else { const d=mx-mn; sat=l>0.5?d/(2-mx-mn):d/(mx+mn);
+      hh = mx===r?((g-b)/d+(g<b?6:0)) : mx===g?((b-r)/d+2) : ((r-g)/d+4); hh/=6; }
+    sat=Math.min(1, sat*1.55+0.18); l=Math.max(0.42, Math.min(0.56, l));
+    const h2=(p,q,t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+    let R,G,B; if(sat===0){R=G=B=l;} else { const q=l<0.5?l*(1+sat):l+sat-l*sat, p=2*l-q; R=h2(p,q,hh+1/3);G=h2(p,q,hh);B=h2(p,q,hh-1/3); }
+    const to=(x)=>('0'+Math.round(x*255).toString(16)).slice(-2);
+    return '#'+to(R)+to(G)+to(B);
+  }
+  hlVivid(id){ const c=this.hlColor(id); return c?this.vivid(c):null; }
+  // colour for the connector LEAVING a knockout match: if that match's winner is a
+  // highlighted team, the line takes that team's (vivid) colour — tracing its path.
+  hlPathColor(slot){
+    const winId = this.resolveTeam({type:'matchWinner', ref:slot});
+    return (winId && this.state.highlights.includes(winId)) ? this.vivid(window.WC.byId[winId].highlightColor) : null;
+  }
+  // open the per-team action menu at the cursor (Highlight / Roster & Stats)
+  openTeamMenu(id, e){
+    if(this.state.youPlay) return;   // taps pick winners in predictor mode
+    this.setState({ teamMenu:{ id, x:e.clientX, y:e.clientY }, menu:null });
+  }
+  // open a header dropdown anchored below its button
+  openMenu(name, e){
+    if(this.state.menu===name){ this.setState({menu:null}); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    this.setState({ menu:name, menuAnchor:{ left:r.left, top:r.bottom+6 } });
+  }
+
+  /* ---------- bracket resolution ---------- */
+  // Resolve a feeder to a concrete team id, given a picks map. Group feeders resolve
+  // to the real standings; a match-winner resolves to the user's pick, else the real
+  // confirmed winner, else null (BLANK — no rating projection).
+  resolveIn(picks, feeder){
+    const S = this.state;
+    if(feeder.type==='groupWinner') return S.standings[feeder.ref][0].id;
+    if(feeder.type==='groupRunnerUp') return S.standings[feeder.ref][1].id;
+    if(feeder.type==='bestThird'){ const c = S.sim.slotContenders[feeder.ref]; return c&&c[0]?c[0].id:null; }
+    if(feeder.type==='matchWinner'){
+      const m = S.data.knockout.find(k=>k.slot===feeder.ref);
+      if(!m) return null;
+      if(picks[m.slot]) return picks[m.slot];
+      const a = this.resolveIn(picks, m.homeFeeder), b = this.resolveIn(picks, m.awayFeeder);
+      if(!a || !b) return null;
+      let real = this.realKO(m.round, a, b);
+      if(!real){   // anchor on a deterministic (group winner/runner-up) side
+        const T = this.state.koByTeam || {};
+        const det=(f,t)=> ((f.type==='groupWinner'||f.type==='groupRunnerUp') && t) ? T[m.round+'|'+t] : null;
+        real = det(m.homeFeeder,a) || det(m.awayFeeder,b) || null;
+      }
+      if(real && real.status==='final' && real.winnerId) return real.winnerId;
+      return null;
+    }
+    if(feeder.type==='matchLoser'){   // the 3rd-place game: losers of the two semis
+      const m = S.data.knockout.find(k=>k.slot===feeder.ref);
+      if(!m) return null;
+      const a = this.resolveIn(picks, m.homeFeeder), b = this.resolveIn(picks, m.awayFeeder);
+      if(!a || !b) return null;
+      let win = picks[m.slot];
+      if(!win){
+        let real = this.realKO(m.round, a, b);
+        if(!real){ const T=this.state.koByTeam||{}; const det=(f,t)=>((f.type==='groupWinner'||f.type==='groupRunnerUp')&&t)?T[m.round+'|'+t]:null; real=det(m.homeFeeder,a)||det(m.awayFeeder,b)||null; }
+        if(real && real.status==='final' && real.winnerId) win = real.winnerId;
+      }
+      if(!win) return null;            // winner unknown → loser unknown
+      return win===a ? b : a;          // the loser advances to the 3rd-place game
+    }
+    return null;
+  }
+  resolveTeam(feeder){ return this.resolveIn(this.state.picks, feeder); }
+  // drop any pick whose team is no longer one of that match's two participants
+  // (happens after an upstream pick is changed or erased) — cascades downstream.
+  prune(picks){
+    let changed = true;
+    while(changed){ changed = false;
+      for(const slot of Object.keys(picks)){
+        const m = this.state.data.knockout.find(k=>k.slot===slot);
+        if(!m){ delete picks[slot]; changed=true; continue; }
+        const a = this.resolveIn(picks, m.homeFeeder), b = this.resolveIn(picks, m.awayFeeder);
+        if(picks[slot]!==a && picks[slot]!==b){ delete picks[slot]; changed=true; }
+      }
+    }
+    return picks;
+  }
+  pick(slot, teamId){
+    if(!teamId) return;
+    const picks = {...this.state.picks};
+    if(picks[slot]===teamId) delete picks[slot];   // tap the chosen team again → erase
+    else picks[slot] = teamId;
+    this.prune(picks);
+    this.setState({picks});
+  }
+  enterYouPlay(){
+    // entering flips the theme (light↔dark) as a focus state; exit restores it
+    this.setState({youPlay:true, picks:{}, menu:null,
+      themeBeforePlay:this.state.theme, theme:this.state.theme==='dark'?'light':'dark'});
+  }
+  exitYouPlay(){ this.setState({youPlay:false, picks:{}, theme:this.state.themeBeforePlay||this.state.theme}); }
+  clearPicks(){ this.setState({picks:{}}); }
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
+  renderVals(){
+    const h = React.createElement, C = this.C();
+    // Inverted scheme for the header bar: dark in light mode, light in dark mode.
+    const Ch = Object.assign({}, C, {
+      surface: C.fg, fg: C.surface,
+      rule: this.rgba(C.surface, 0.24),
+      faint: this.rgba(C.surface, 0.62),
+      faint2: this.rgba(C.surface, 0.42),
+      track: this.rgba(C.surface, 0.20),
+    });
+    const rootStyle = { minHeight:'100vh', background:C.surface, color:C.fg,
+      fontFamily:'Inter,system-ui,sans-serif', transition:'background 200ms ease-out,color 200ms ease-out' };
+    const headerStyle = { position:'sticky', top:0, zIndex:60, display:'flex', alignItems:'center',
+      justifyContent:'space-between', gap:18, padding:'8px 22px', background:C.fg, color:C.surface,
+      borderBottom:`1px solid ${this.rgba(C.surface,0.12)}`, transition:'background 200ms ease-out,color 200ms ease-out' };
+
+    if(!this.state.loaded){
+      return { rootStyle, headerStyle, tagline:this.T.tagline, controls:this.renderControls(Ch),
+        app: h('div',{style:{padding:'120px 26px',textAlign:'center',color:C.faint,fontSize:14,letterSpacing:'0.1em',textTransform:'uppercase',animation:'wcfade .4s'}},
+          h('span',{style:{display:'inline-block',width:13,height:13,border:`2px solid ${C.rule}`,borderTopColor:C.accent,borderRadius:'50%',marginRight:10,verticalAlign:'middle',animation:'wcspin .8s linear infinite'}}),
+          'Computing 4,000 simulations') };
+    }
+
+    return { rootStyle, headerStyle, tagline:this.T.tagline,
+      controls: this.renderControls(Ch),
+      app: h(React.Fragment, null,
+        this.state.youPlay ? this.renderYouPlayBar(C) : null,
+        h('div', { id:'wc-capture', style:{ padding: this.state.youPlay?'58px 26px 90px':'0 26px 90px', background:C.surface, transition:'padding 180ms ease-out' } },
+          h('div', { style:{ opacity:this.state.youPlay?0.32:1, pointerEvents:this.state.youPlay?'none':'auto', transition:'opacity 180ms ease-out' } }, this.renderGroups(C)),
+          this.renderBracket(C)
+        ),
+        this.renderMenus(C),
+        this.state.debug ? this.renderDebug(C) : null,
+        this.state.teamMenu ? this.renderTeamMenu(C) : null,
+        this.state.selectedTeam ? this.renderTeamModal(C) : null,
+        this.state.showBest3 ? this.renderBest3(C) : null
+      ) };
+  }
+  // small action menu shown when a team is tapped: Highlight / Roster & Stats
+  renderTeamMenu(C){
+    const h = React.createElement, S = this.state, T = this.T;
+    const id = S.teamMenu.id, tm = window.WC.byId[id];
+    const close = ()=>this.setState({teamMenu:null});
+    const on = S.highlights.includes(id), full = S.highlights.length>=8 && !on;
+    const W = 220, vw = (window.innerWidth||1280), vh = (window.innerHeight||800);
+    const left = Math.max(12, Math.min(S.teamMenu.x, vw - W - 12));
+    const top = Math.min(S.teamMenu.y, vh - 150);
+    const item = (label, onClick, opts={})=>h('button',{onClick, disabled:opts.disabled, className:'wcbtn',
+      style:{display:'flex',alignItems:'center',gap:10,width:'100%',font:'inherit',fontSize:13.5,textAlign:'left',
+        padding:'10px 11px',border:'none',background:'transparent',color:opts.disabled?C.faint2:C.fg,
+        cursor:opts.disabled?'default':'pointer',borderRadius:7}},
+      opts.dot?h('span',{style:{width:10,height:10,borderRadius:'50%',flex:'0 0 auto',
+        background:on?this.vivid(opts.dot):'transparent',border:on?'none':`2px solid ${this.vivid(opts.dot)}`}}):null,
+      label);
+    return h('div',{onClick:close, style:{position:'fixed',inset:0,zIndex:95}},
+      h('div',{onClick:e=>e.stopPropagation(), style:{position:'fixed',left,top,width:W,zIndex:96,
+        background:C.panel,color:C.fg,border:`1px solid ${C.rule}`,borderRadius:12,padding:5,
+        boxShadow:'0 18px 50px -12px rgba(0,0,0,0.40)',animation:'wcfade .12s ease-out'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:9,padding:'7px 9px 9px'}},
+          this.flagToken(C,tm,22,{gold:tm.isWorldCupWinner}),
+          h('span',{style:{fontWeight:600,fontSize:13.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:'0 1 auto'}}, this.nm(tm)),
+          this.wcStars(C, tm, 12)),
+        h('div',{style:{height:1,background:C.rule,margin:'0 4px 4px'}}),
+        item(on?(S.lang==='es'?'Quitar resaltado':'Remove highlight'):(full?(S.lang==='es'?'Resaltar (máx. 8)':'Highlight (8 max)'):(S.lang==='es'?'Resaltar equipo':'Highlight team')),
+          ()=>{ this.toggleHighlight(id); this.setState({teamMenu:null}); }, {dot:tm.highlightColor, disabled:full}),
+        item(S.lang==='es'?'Plantilla y estadísticas':'Roster & Stats',
+          ()=>this.setState({selectedTeam:id, teamMenu:null}))));
+  }
+
+  sectionHeader(C, num, label, right){
+    const h = React.createElement;
+    return h('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',
+      gap:20,padding:'46px 0 8px',borderBottom:`1px solid ${C.rule}`,marginBottom:26}},
+      h('div',{style:{display:'flex',alignItems:'baseline',gap:16}},
+        h('h2',{style:{margin:0,fontSize:34,fontWeight:700,letterSpacing:'-0.02em',lineHeight:1}},label)),
+      right||null);
+  }
+
+  /* ---------- CONTROLS ---------- */
+  // small line-icons for the header (24×24 viewBox, stroke = currentColor)
+  icon(name, sz){
+    const h = React.createElement;
+    const base = {width:sz||16,height:sz||16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',
+      strokeWidth:1.9,strokeLinecap:'round',strokeLinejoin:'round'};
+    const svg = (...kids)=>h('svg',base,...kids);
+    switch(name){
+      case 'marker': return svg(h('path',{d:'M16.5 4.5l3 3L8 19l-4 1 1-4z'}), h('path',{d:'M14.5 6.5l3 3'}));
+      case 'globe':  return svg(h('circle',{cx:12,cy:12,r:9}), h('line',{x1:3,y1:12,x2:21,y2:12}),
+        h('path',{d:'M12 3c2.5 2.4 4 5.6 4 9s-1.5 6.6-4 9c-2.5-2.4-4-5.6-4-9s1.5-6.6 4-9z'}));
+      case 'sun':    return svg(h('circle',{cx:12,cy:12,r:4}),
+        h('path',{d:'M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4'}));
+      case 'moon':   return svg(h('path',{d:'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z'}));
+      case 'camera': return svg(h('path',{d:'M3 9a2 2 0 0 1 2-2h2l1.3-1.7A1 1 0 0 1 11.1 5h1.8a1 1 0 0 1 .8.3L15 7h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'}), h('circle',{cx:12,cy:13,r:3}));
+      case 'refresh':return svg(h('path',{d:'M21 12a9 9 0 1 1-2.64-6.36'}), h('path',{d:'M21 4v5h-5'}));
+    }
+    return null;
+  }
+  // circular icon button used across the header
+  iconBtn(C, opts={}){
+    const h = React.createElement, active = opts.active, sz = opts.size||30;
+    return h('button',{ 'data-wc-menubtn':opts.menu?'':undefined, className:'wcbtn', onClick:opts.onClick,
+      title:opts.title||undefined, 'aria-label':opts.title||undefined,
+      style:{ position:'relative', width:sz, height:sz, borderRadius:'50%', cursor:'pointer', padding:0, flex:'0 0 auto',
+        display:'inline-flex', alignItems:'center', justifyContent:'center',
+        border:`1px solid ${active?C.accent:C.rule}`, background:active?this.rgba(C.accent,0.14):'transparent',
+        color:active?C.accent:C.fg } },
+      opts.spin?h('span',{style:{display:'inline-flex',animation:'wcspin .8s linear infinite'}},opts.icon):opts.icon,
+      (opts.badge!=null && opts.badge!==0)?h('span',{style:{position:'absolute',top:-4,right:-4,minWidth:15,height:15,
+        padding:'0 3px',borderRadius:8,background:C.accent,color:'#fff',fontSize:9,fontWeight:700,lineHeight:1,
+        display:'flex',alignItems:'center',justifyContent:'center',boxShadow:`0 0 0 2px ${C.surface}`}},opts.badge):null);
+  }
+  renderControls(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    const set = (k,v)=>()=>this.setState({[k]:v, menu:null});
+    const playLabel = (S.lang==='es'?'Haz tu cuadro':'Play your bracket');
+    const ib = (o)=>this.iconBtn(C,o);
+    return h('div',{style:{display:'flex',alignItems:'center',gap:7,justifyContent:'flex-end'}},
+      ib({title:T.highlight, icon:this.icon('marker'), menu:1, badge:S.highlights.length||null,
+        active:S.menu==='hl'||S.highlights.length>0, onClick:(e)=>this.openMenu('hl', e)}),
+      ib({title:`${T.timezone}${S.convertTz?' · '+this.tzAbbr(S.tzTarget):' · '+T.officialTimes}`, icon:this.icon('globe'), menu:1,
+        active:S.menu==='tz'||S.convertTz, onClick:(e)=>this.openMenu('tz', e)}),
+      ib({title:T.language, icon:h('span',{style:{fontSize:11,fontWeight:700,letterSpacing:'0.03em'}}, S.lang==='es'?'ES':'EN'),
+        onClick:set('lang',S.lang==='es'?'en':'es')}),
+      ib({title:S.theme==='dark'?T.light:T.dark, icon:this.icon(S.theme==='dark'?'sun':'moon'),
+        onClick:set('theme',S.theme==='dark'?'light':'dark')}),
+      ib({title:T.screenshot, icon:this.icon('camera'), onClick:()=>this.exportPng()}),
+      ib({title:T.refresh, icon:this.icon('refresh'), active:S.refreshing, spin:S.refreshing, onClick:()=>this.refreshLive()}),
+      // Predictor stays a labelled accent pill — the header's primary action. Fixed width
+      // so toggling EN/ES (different label lengths) doesn't reflow the icon row.
+      S.youPlay?null:h('button',{className:'wcbtn',onClick:()=>this.enterYouPlay(),
+        style:{font:'inherit',fontSize:12,fontWeight:600,letterSpacing:'0.02em',cursor:'pointer',height:30,marginLeft:3,
+          width:172,flex:'0 0 auto',padding:'0 14px',borderRadius:15,border:`1px solid ${C.accent}`,
+          display:'inline-flex',alignItems:'center',justifyContent:'center',
+          background:C.accent,color:'#fff',whiteSpace:'nowrap'}}, playLabel+' →'));
+  }
+
+  /* ---------- MENUS ---------- */
+  menuPanel(C, children){
+    const W = 268, a = this.state.menuAnchor;
+    const vw = (typeof window!=='undefined' && window.innerWidth) || 1280;
+    const pos = a
+      ? { top:a.top, left:Math.max(12, Math.min(a.left, vw - W - 12)) }   // below its button, clamped
+      : { top:60, right:26 };
+    return React.createElement('div',{ 'data-wc-menu':'', style:Object.assign({ position:'fixed', zIndex:80,
+      width:W, maxHeight:'72vh', overflowY:'auto', background:C.panel, color:C.fg,
+      border:`1px solid ${C.rule}`, borderRadius:12, padding:'14px 16px',
+      boxShadow:'0 18px 50px -12px rgba(0,0,0,0.32)', animation:'wcfade .14s ease-out' }, pos) }, children);
+  }
+  renderMenus(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    if(S.menu==='tz'){
+      const zones = ['America/Los_Angeles','America/Denver','America/Chicago','America/New_York','America/Mexico_City','America/Sao_Paulo','Europe/London','Europe/Madrid','Europe/Berlin','Africa/Lagos','Asia/Tokyo','Asia/Riyadh','Australia/Sydney'];
+      // segmented toggle: Official time | My time zone
+      const seg = (label, on, onClick)=>h('button',{onClick, className:'wcbtn',
+        style:{flex:1,font:'inherit',fontSize:12.5,fontWeight:on?600:500,textAlign:'center',padding:'8px 6px',borderRadius:7,cursor:'pointer',
+          border:'none',background:on?C.accent:'transparent',color:on?'#fff':C.fg,transition:'background 140ms,color 140ms'}}, label);
+      return this.menuPanel(C, [
+        h('div',{key:'t',style:{fontSize:11,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint,marginBottom:12}},T.timezone),
+        h('div',{key:'seg',style:{display:'flex',gap:4,padding:4,borderRadius:9,background:this.rgba(C.fg,0.06),marginBottom:12}},
+          seg(T.officialTimes, !S.convertTz, ()=>this.setState({convertTz:false})),
+          seg(T.myTime, S.convertTz, ()=>this.setState({convertTz:true}))),
+        h('div',{key:'auto',style:{opacity:S.convertTz?1:0.4,pointerEvents:S.convertTz?'auto':'none',transition:'opacity 140ms'}},
+          [{tz:S.autoTz,label:`${S.lang==='es'?'Autodetectar':'Autodetect'} (${this.tzAbbr(S.autoTz)})`}].concat(zones.map(z=>({tz:z,label:`${z.split('/')[1].replace('_',' ')} (${this.tzAbbr(z)})`}))).map(o=>
+            h('button',{key:o.tz,onClick:()=>this.setState({tzTarget:o.tz,convertTz:true}),className:'wcbtn',
+              style:{width:'100%',font:'inherit',fontSize:12.5,textAlign:'left',padding:'7px 10px',borderRadius:4,cursor:'pointer',
+                border:'none',background:(S.convertTz&&S.tzTarget===o.tz)?this.rgba(C.accent,0.12):'transparent',
+                color:(S.convertTz&&S.tzTarget===o.tz)?C.accent:C.fg,display:'block'}},o.label)))
+      ]);
+    }
+    if(S.menu==='hl'){
+      return this.menuPanel(C, [
+        h('div',{key:'t',style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}},
+          h('span',{style:{fontSize:11,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint}},this.T.highlight),
+          h('span',{style:{fontSize:11,color:S.highlights.length>=8?C.accent:C.faint2}},`${S.highlights.length}/8`)),
+        window.WC.GROUPS.map(g=>h('div',{key:g,style:{marginBottom:8}},
+          h('div',{style:{fontSize:10,letterSpacing:'0.14em',color:C.faint2,margin:'7px 0 3px'}},`Group ${g}`),
+          S.standings[g].map(r=>{const tm=window.WC.byId[r.id];const on=S.highlights.includes(r.id);
+            return h('button',{key:r.id,onClick:()=>this.toggleHighlight(r.id),className:'wcbtn',
+              disabled: !on && S.highlights.length>=8,
+              style:{width:'100%',font:'inherit',fontSize:13,textAlign:'left',display:'flex',alignItems:'center',gap:8,
+                padding:'5px 8px',borderRadius:4,cursor: (!on&&S.highlights.length>=8)?'default':'pointer',
+                border:'none',background:on?this.rgba(tm.highlightColor,0.14):'transparent',color:C.fg,
+                opacity:(!on&&S.highlights.length>=8)?0.4:1}},
+              h('span',{style:{width:9,height:9,borderRadius:'50%',flex:'0 0 auto',background:on?tm.highlightColor:'transparent',border:on?'none':`1px solid ${C.rule}`}}),
+              this.flagToken(C,tm,18), h('span',null,this.nm(tm)));
+          })))
+      ]);
+    }
+    return null;
+  }
+
+  /* ---------- FLAG ---------- */
+  flagToken(C, team, size, opts={}){
+    const h = React.createElement;
+    const ring = opts.gold ? C.gold : (opts.sel ? C.accent : null);
+    const code = team.iso;
+    return h('span',{style:{ position:'relative', width:size,height:size,borderRadius:'50%',overflow:'hidden',
+      display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',
+      lineHeight:1, background:this.rgba(C.fg,0.07),
+      boxShadow: ring?`0 0 0 1.5px ${C.surface},0 0 0 3px ${ring}`:'inset 0 0 0 1px '+this.rgba(C.fg,0.08) }},
+      // emoji sits behind as an offline fallback; the round-flag image fills the circle
+      h('span',{style:{fontSize:Math.round(size*1.32)+'px',lineHeight:1,transform:'translateY(0.5px)'}}, team.flag),
+      code?h('img',{src:`https://cdn.jsdelivr.net/gh/HatScripts/circle-flags/flags/${code}.svg`,
+        alt:'', crossOrigin:'anonymous',
+        style:{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',display:'block'},
+        onError:(e)=>{ e.target.style.display='none'; }}):null);
+  }
+  teamName(C, team, opts={}){
+    const h = React.createElement;
+    return h('span',{style:{whiteSpace:'nowrap',fontWeight:opts.bold?600:400,fontSize:opts.size||14.5}},
+      this.nm(team),
+      opts.rank!==false ? h('span',{style:{fontSize:'0.6em',fontWeight:400,color:C.faint2,marginLeft:4}}, team.fifaRank) : null);
+  }
+
+  /* ---------- CHAMPION (final winner) ---------- */
+  // the team that has WON the final — real result first, else the You-Play pick. null otherwise.
+  championId(){
+    const data = this.state.data; if(!data) return null;
+    const m = data.knockout.find(k=>k.slot==='final'); if(!m) return null;
+    const sm = this.slotMatch(m); const real = sm && sm.real;
+    if(real && real.status==='final' && real.winnerId) return real.winnerId;
+    if(this.state.youPlay && this.state.picks['final']) return this.state.picks['final'];
+    return null;
+  }
+  // stars in left→right order with their winning years. The NEW 2026 star is placed at
+  // the CENTRE when the total is odd, or at the LEFTMOST position when the total is even.
+  champStars(team){
+    const ex = [...(team.titleYears||[])].sort((a,b)=>a-b);
+    const NEW = {year:2026, isNew:true}, T = ex.length + 1;
+    if(T % 2 === 1){ const half = ex.length/2;   // odd total → new in the middle
+      return [...ex.slice(0,half).map(y=>({year:y,isNew:false})), NEW, ...ex.slice(half).map(y=>({year:y,isNew:false}))]; }
+    return [NEW, ...ex.map(y=>({year:y,isNew:false}))];   // even total → new on the far left
+  }
+  // Champion crest: a big flag circle with the country name inside, and the team's stars
+  // (incl. the new 2026 one) fanned concentrically above it, each with its year further out.
+  championNode(C, id){
+    const h = React.createElement, S = this.state;
+    const tm = window.WC.byId[id]; if(!tm) return null;
+    const stars = this.champStars(tm), T = stars.length;
+    const cr = 58, Rs = cr + 36, Ry = Rs + 27;          // circle radius, star-ring, year-ring
+    const stepDeg = T>1 ? Math.min(30, 170/T) : 0;
+    const half = (T-1)/2, maxAng = half*stepDeg*Math.PI/180;
+    const Wbox = Math.max(2*cr + 130, 2*(Ry*Math.sin(maxAng) + 36));
+    const cx = Wbox/2, topPad = 20, cy = topPad + Ry;    // circle centre y
+    const Hbox = cy + cr + 12;
+    const els = [];
+    stars.forEach((s,k)=>{
+      const angDeg = (k-half)*stepDeg, ang = angDeg*Math.PI/180;
+      const sx = cx + Rs*Math.sin(ang), sy = cy - Rs*Math.cos(ang);
+      const yx = cx + Ry*Math.sin(ang), yy = cy - Ry*Math.cos(ang);
+      // year sits on the arc, rotated tangent to the circle (concentric), not horizontal
+      els.push(h('div',{key:'y'+k,style:{position:'absolute',left:yx,top:yy,transform:`translate(-50%,-50%) rotate(${angDeg}deg)`,
+        fontSize:11,fontWeight:700,letterSpacing:'0.03em',fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap',
+        color:s.isNew?C.gold:C.faint}}, s.year));
+      els.push(h('div',{key:'s'+k,style:{position:'absolute',left:sx,top:sy,transform:`translate(-50%,-50%) rotate(${angDeg}deg)`,
+        fontSize:s.isNew?32:25,lineHeight:1,color:C.gold,
+        filter:s.isNew?`drop-shadow(0 0 7px ${this.rgba(C.gold,0.75)})`:'none'}}, '★'));
+    });
+    const flagUrl = tm.iso?`https://cdn.jsdelivr.net/gh/HatScripts/circle-flags/flags/${tm.iso}.svg`:null;
+    els.push(h('div',{key:'circle',style:{position:'absolute',left:cx,top:cy,transform:'translate(-50%,-50%)',
+      width:2*cr,height:2*cr,borderRadius:'50%',overflow:'hidden',
+      boxShadow:`0 0 0 3px ${C.surface}, 0 0 0 5px ${C.gold}, 0 12px 32px -8px rgba(0,0,0,0.5)`,
+      background:this.rgba(C.fg,0.07)}},
+      flagUrl?h('img',{src:flagUrl,alt:'',crossOrigin:'anonymous',
+        style:{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'},onError:(e)=>{e.target.style.display='none';}}):null));
+    els.push(h('div',{key:'lbl',style:{position:'absolute',left:cx,top:Hbox+8,transform:'translateX(-50%)',
+      whiteSpace:'nowrap',fontSize:10,letterSpacing:'0.22em',textTransform:'uppercase',color:C.gold,fontWeight:700}},
+      S.lang==='es'?'Campeón 2026':'2026 Champion'));
+    return { Wbox, Hbox:Hbox+34, els };
+  }
+
+  /* ---------- GROUPS ---------- */
+  renderGroups(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    return h('section', {style:{scrollSnapAlign:'start'}},
+      this.sectionHeader(C,'01',T.groups,
+        h('button',{className:'wcbtn',onClick:()=>this.setState({showBest3:true}),
+          style:{font:'inherit',fontSize:12.5,cursor:'pointer',padding:'9px 16px',borderRadius:10,
+            border:`1px solid ${C.rule}`,background:'transparent',color:C.fg}}, T.best3+' →')),
+      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:'30px 34px'}},
+        window.WC.GROUPS.map(g=>this.renderGroupTable(C,g))));
+  }
+  renderGroupTable(C,g){
+    const h = React.createElement, S = this.state, T = this.T;
+    const gs = S.dbg.gsText || 1, fz = (v)=>Math.round(v*gs*100)/100;   // group-stage text scale
+    const rows = S.standings[g];
+    const clinchG = S.clinch[g];
+    const thirdId = rows[2].id;
+    const thirdRank = S.thirds.findIndex(t=>t.row.id===thirdId);
+    const thirdQual = thirdRank>=0 && thirdRank<8;
+    const hover = S.hoverTeam;
+    const groupMatches = S.data.groupMatches.filter(m=>m.group===g);
+
+    const head = h('div',{style:{display:'grid',gridTemplateColumns:'18px 1fr 30px 34px',gap:6,
+      fontSize:fz(10),letterSpacing:'0.1em',textTransform:'uppercase',color:C.faint2,padding:'0 4px 7px'}},
+      h('span',null,'#'),h('span',null,'Team'),h('span',{style:{textAlign:'right'}},'Pts'),h('span',{style:{textAlign:'right'}},'GD'));
+
+    return h('div',{key:g,onMouseLeave:()=>this.setState({hoverTeam:null})},
+      h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:9}},
+        h('div',{style:{fontSize:fz(15),fontWeight:700,letterSpacing:'0.02em'}}, (this.state.lang==='es'?'Grupo ':'Group ')+g)),
+      head,
+      rows.map((r,i)=>{
+        const tm = window.WC.byId[r.id];
+        const cl = clinchG[r.id]||{};
+        const inZone = i<2;
+        const isThirdZone = i===2 && thirdQual;
+        const hl = this.hlColor(r.id);
+        let bg = 'transparent';
+        if(inZone) bg = C.zone1; else if(isThirdZone) bg = C.zone2;
+        // head-to-head marker
+        let h2h = null;
+        if(hover && hover!==r.id && rows.some(x=>x.id===hover)){
+          const mm = groupMatches.find(m=>m.status==='final' && ((m.home===hover&&m.away===r.id)||(m.away===hover&&m.home===r.id)));
+          if(mm){
+            let res, col;
+            const hg = mm.home===hover?mm.homeGoals:mm.awayGoals, ag = mm.home===hover?mm.awayGoals:mm.homeGoals;
+            if(hg>ag){res='BEAT';col=C.accent;} else if(hg<ag){res='LOST';col='#A63A2A';} else {res='DREW';col=C.faint;}
+            h2h = h('span',{style:{fontSize:fz(9),letterSpacing:'0.12em',color:col,fontWeight:600,marginLeft:6}},res);
+          }
+        }
+        return h('div',{key:r.id,className:'wcrow',onMouseEnter:()=>this.setState({hoverTeam:r.id}),
+          onClick:(e)=>this.openTeamMenu(r.id, e),
+          style:{display:'grid',gridTemplateColumns:'18px 1fr 30px 34px',gap:6,alignItems:'center',
+            padding:'7px 8px',cursor:'pointer',position:'relative',
+            background: hl ? this.rgba(hl, C.light?0.10:0.16) : bg,
+            borderRadius: hl ? 10 : 0,
+            // a rounded stroke around the WHOLE row (pos · team · Pts · GD); outline so
+            // it doesn't shift layout. Non-highlighted rows keep the hairline separator.
+            outline: hl ? `2.5px solid ${this.vivid(hl)}` : 'none', outlineOffset:'-1px',
+            borderBottom: (!hl && i<3)?`1px solid ${this.rgba(C.fg,0.06)}`:'none',
+            opacity: (cl.eliminatedTop2 && !isThirdZone && i>=2)?0.55:1 }},
+          h('span',{style:{fontSize:fz(12),color:C.faint2,fontVariantNumeric:'tabular-nums'}}, i+1),
+          h('div',{style:{display:'flex',alignItems:'center',gap:8,minWidth:0}},
+            this.flagToken(C,tm,Math.round(21*gs),{gold:tm.isWorldCupWinner}),
+            h('span',{style:{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:fz(14),fontWeight:inZone?500:400}}, this.nm(tm),
+              h('span',{style:{fontSize:'0.6em',fontWeight:400,color:C.faint2,marginLeft:4}}, tm.fifaRank)),
+            cl.clinched ? h('span',{style:{color:C.accent,fontSize:fz(13),flex:'0 0 auto'}},'✓') : null,
+            isThirdZone ? h('span',{style:{fontSize:fz(9),letterSpacing:'0.1em',color:C.accent,fontWeight:600,flex:'0 0 auto'}},
+              `BEST 3RD · ${this.ord(thirdRank+1).toUpperCase()}`) : null,
+            h2h),
+          h('span',{style:{textAlign:'right',fontWeight:600,fontVariantNumeric:'tabular-nums',fontSize:fz(13.5)}}, r.Pts),
+          h('span',{style:{textAlign:'right',color:C.faint,fontVariantNumeric:'tabular-nums',fontSize:fz(13)}}, (r.GD>0?'+':'')+r.GD));
+      }));
+  }
+
+  /* ---------- TIMELINE ---------- */
+  // every calendar day from the first knockout match to the final (incl. empty days)
+  tlData(){
+    const ko = (this.state.data && this.state.data.knockout) || [];
+    const isos = ko.map(m=>m.date && m.date.iso).filter(Boolean);
+    if(!isos.length) return [];
+    const num = (iso)=>{ const [m,d]=iso.split('-').map(Number); return m*100+d; };
+    const matchSet = new Set(isos);
+    const sorted = [...new Set(isos)].sort((a,b)=>num(a)-num(b));
+    const dim = {6:30,7:31};   // tournament spans June–July 2026
+    let [mm,dd] = sorted[0].split('-').map(Number);
+    const [xM,xD] = sorted[sorted.length-1].split('-').map(Number);
+    const days = [];
+    while(mm<xM || (mm===xM && dd<=xD)){
+      const iso = `${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+      days.push({ iso, md:`${String(mm).padStart(2,'0')}/${String(dd).padStart(2,'0')}`, hasMatch:matchSet.has(iso) });
+      dd++; if(dd>(dim[mm]||31)){ dd=1; mm++; }
+    }
+    return days;
+  }
+  tlSelectedIso(days){
+    const isos = days.map(d=>d.iso);
+    if(this.state.tlIso && isos.includes(this.state.tlIso)) return this.state.tlIso;
+    const now = new Date();
+    const today = `${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const num = (iso)=>{ const [m,d]=iso.split('-').map(Number); return m*100+d; };
+    const tn = num(today);
+    if(tn <= num(isos[0])) return isos[0];
+    if(tn >= num(isos[isos.length-1])) return isos[isos.length-1];
+    let best = isos[0]; isos.forEach(iso=>{ if(num(iso)<=tn) best=iso; });   // nearest day ≤ today
+    return best;
+  }
+  toggleTimeline(days){
+    const on = !this.state.timeline;
+    this.setState({ timeline:on, tlIso: on ? this.tlSelectedIso(days) : this.state.tlIso });
+  }
+  // is this match on the timeline's selected day? (drives the accent highlight)
+  tlMatch(m){ return !!(this._tlOn && m && m.date && m.date.iso === this._tlSelIso); }
+  // set the selected day from a pointer x within the track element
+  tlDrag(track, days, clientX){
+    const n=days.length, r=track.getBoundingClientRect();
+    const f=Math.max(0, Math.min(1, (clientX-r.left)/r.width));
+    const iso=days[Math.round(f*(n-1))].iso;
+    if(iso!==this.state.tlIso) this.setState({tlIso:iso});
+  }
+  tlDragStart(e, days){
+    if(!this.state.timeline) return;
+    const track=e.currentTarget;
+    const getX=(ev)=>(ev.touches&&ev.touches[0])?ev.touches[0].clientX:ev.clientX;
+    this.tlDrag(track, days, getX(e));
+    const move=(ev)=>{ if(ev.cancelable) ev.preventDefault(); this.tlDrag(track, days, getX(ev)); };
+    const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up);
+      document.removeEventListener('touchmove',move); document.removeEventListener('touchend',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+    document.addEventListener('touchmove',move,{passive:false}); document.addEventListener('touchend',up);
+  }
+  renderTimeline(C, days){
+    const h = React.createElement, S = this.state, D = S.dbg;
+    if(!days || days.length<2) return null;
+    const n = days.length, on = S.timeline;
+    const sel = Math.max(0, days.findIndex(d=>d.iso===this.tlSelectedIso(days)));
+    const cur = days[sel], es = S.lang==='es', dim = on ? 1 : 0.4;
+    const between = Math.max(0, D.between|0);
+    const bs = D.tlBtn || 26;            // ON/OFF button diameter (debug-tunable)
+    const tlLen = D.tlLen || 940;        // overall timeline length (max width)
+    // build the barcode: a thick line per day + `between` thin lines in each gap
+    const lines = [];
+    for(let i=0;i<n;i++){
+      lines.push({ frac:i/(n-1), day:true, dayIdx:i });
+      if(i<n-1) for(let k=1;k<=between;k++) lines.push({ frac:(i + k/(between+1))/(n-1), day:false, dayIdx:-1 });
+    }
+    const selLineIdx = lines.findIndex(l=>l.day && l.dayIdx===sel);
+    const field = Math.max(1, D.field);
+    const ts = D.tlScale || 1, z = (v)=>Math.round(v*ts*100)/100;   // vertical/size scale (width unchanged)
+    const lblH = z(13), gap = z(7), trackH = z(D.selH + 10);
+    // each line: magnet height (taller near the selection), day lines thicker, selector tallest+thickest
+    const lineEls = lines.map((l,idx)=>{
+      const dist = Math.abs(idx - selLineIdx);
+      let hgt = D.normalH;
+      if(on && dist < field){ const f = 0.5*(1+Math.cos(Math.PI*dist/field)); hgt = D.normalH + (D.selH - D.normalH)*f; }
+      const isSel = on && l.day && l.dayIdx===sel;
+      const wdt = isSel ? D.selW : (l.day ? D.thick*2 : D.thick);
+      const near = on && dist < field;
+      const col = isSel ? C.fg
+        : l.day ? this.rgba(C.fg, near?0.55:0.42)
+        : this.rgba(C.fg, near?0.34:0.22);
+      return h('div',{key:idx,style:{position:'absolute',left:`${l.frac*100}%`,top:'50%',
+        transform:'translate(-50%,-50%)', width:z(wdt), height:z(hgt), borderRadius:z(wdt)/2, background:col,
+        transition:'height 130ms ease-out, background 130ms'}});
+    });
+    const track = h('div',{style:{position:'relative',height:trackH,cursor:on?'pointer':'default',touchAction:'none'},
+      onMouseDown:(e)=>this.tlDragStart(e,days), onTouchStart:(e)=>this.tlDragStart(e,days)}, lineEls);
+    // ON/OFF column — pushed left, label aligned with the date labels, button on the line
+    const circle = h('button',{onClick:()=>this.toggleTimeline(days), className:'wcbtn', title:es?'Activar línea de tiempo':'Toggle match timeline',
+      style:{width:z(bs),height:z(bs),borderRadius:'50%',cursor:'pointer',padding:0,display:'flex',alignItems:'center',justifyContent:'center',
+        border:`2px solid ${on?C.accent:C.rule}`, background:on?C.accent:'transparent',
+        boxShadow:on?`0 0 0 ${z(bs*0.154)}px ${this.rgba(C.accent,0.18)}`:'none', transition:'background 140ms,border-color 140ms,box-shadow 140ms'}},
+      h('span',{style:{width:z(bs*0.308),height:z(bs*0.308),borderRadius:'50%',background:on?'#fff':C.faint2,transition:'background 140ms'}}));
+    const onoff = h('div',{style:{flex:'0 0 auto',display:'flex',flexDirection:'column',alignItems:'center',width:z(Math.max(34,bs+8))}},
+      h('div',{style:{height:lblH,display:'flex',alignItems:'flex-start'}},
+        h('span',{style:{fontSize:z(9),lineHeight:z(12)+'px',letterSpacing:'0.16em',fontWeight:700,color:on?C.accent:C.faint2}}, on?'ON':'OFF')),
+      h('div',{style:{height:gap}}),
+      h('div',{style:{height:trackH,display:'flex',alignItems:'center'}}, circle));
+    const labels = h('div',{style:{position:'relative',height:lblH,marginBottom:gap}},
+      days.map((d,i)=>h('div',{key:d.iso,style:{position:'absolute',left:`${i/(n-1)*100}%`,transform:'translateX(-50%)',
+        fontSize:z(8.5),lineHeight:z(12)+'px',letterSpacing:'0.01em',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums',
+        fontWeight:(on&&i===sel)||d.hasMatch?700:400,
+        color:(on&&i===sel)?C.fg:(d.hasMatch?C.faint:C.faint2)}}, d.md)));
+    const body = h('div',{style:{flex:1,minWidth:0,opacity:dim,transition:'opacity 140ms'}}, labels, track);
+    return h('div',{style:{maxWidth:tlLen,margin:`${D.tlTop}px auto ${D.tlBot}px`,padding:'0 14px'}},
+      h('div',{style:{textAlign:'center',fontSize:z(11),letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint,marginBottom:D.tlTitleGap,opacity:dim,transition:'opacity 140ms'}},
+        es?'Línea de tiempo de partidos':'Match timeline'),
+      h('div',{style:{display:'flex',alignItems:'flex-start',gap:26}}, onoff, body));
+  }
+  dbgDragStart(e){
+    if(e.target.closest && e.target.closest('button')) return;   // close button isn't a drag
+    const sx=e.clientX, sy=e.clientY, cur=this._dbgPos();
+    const bl=cur.left, bt=cur.top;
+    const move=(ev)=>{ this.setState({dbgPos:{left:Math.max(0,bl+(ev.clientX-sx)), top:Math.max(0,bt+(ev.clientY-sy))}}); };
+    const up=()=>{ document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',up); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',up);
+  }
+  _dbgPos(){ return this.state.dbgPos || { left:Math.max(12,(window.innerWidth||1280)-512), top:18 }; }
+  renderDebug(C){
+    const h = React.createElement, S = this.state, D = S.dbg;
+    const set=(k,v)=>this.setState({dbg:Object.assign({},D,{[k]:v})});
+    const row=(key,label,min,max,step)=>h('div',{key},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',fontSize:11,marginBottom:5,gap:6}},
+        h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},label), h('span',{style:{fontVariantNumeric:'tabular-nums',color:C.faint,fontWeight:600,flex:'0 0 auto'}}, D[key])),
+      h('input',{type:'range',min,max,step,value:D[key],onChange:(e)=>set(key,+e.target.value),
+        style:{width:'100%',accentColor:C.accent,cursor:'pointer'}}));
+    const head=(t)=>h('div',{key:'h-'+t,style:{gridColumn:'1 / -1',fontSize:9.5,letterSpacing:'0.18em',textTransform:'uppercase',color:C.accent,fontWeight:700,margin:'6px 0 2px',paddingBottom:5,borderBottom:`1px solid ${C.rule}`}}, t);
+    const pos = this._dbgPos();
+    return h('div',{style:{position:'fixed',left:pos.left,top:pos.top,zIndex:120,width:484,maxHeight:'calc(100vh - 24px)',
+      overflowY:'auto',background:C.panel,color:C.fg,
+      border:`1px solid ${C.rule}`,borderRadius:12,boxShadow:'0 18px 50px -12px rgba(0,0,0,0.42)',
+      fontFamily:'Inter,system-ui,sans-serif'}},
+      h('div',{onMouseDown:(e)=>this.dbgDragStart(e),
+        style:{position:'sticky',top:0,zIndex:1,background:C.panel,cursor:'move',display:'flex',justifyContent:'space-between',alignItems:'center',
+        padding:'13px 17px 11px',borderBottom:`1px solid ${C.rule}`}},
+        h('span',{style:{fontSize:11,letterSpacing:'0.16em',textTransform:'uppercase',fontWeight:700}},'⠿ Debug'),
+        h('button',{onClick:()=>this.setState({debug:false}),style:{font:'inherit',fontSize:18,cursor:'pointer',border:'none',background:'transparent',color:C.faint,lineHeight:1}},'×')),
+      h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',columnGap:20,rowGap:12,padding:'10px 17px 14px'}},
+        head('Bracket'),
+        row('scale','Overall scale',0.3,1,0.05),
+        row('rowH','Space between matches',90,300,2),
+        row('colGap','Column gap',12,180,2),
+        row('cardV','Large-card vertical pad',0,12,1),
+        row('embTop','Emblem position (above final)',60,440,4),
+        row('embScale','Emblem scale',0.4,2.2,0.05),
+        row('chTop','Winner graphic position',0,320,4),
+        row('chScale','Winner graphic scale',0.4,2,0.05),
+        head('Text'),
+        row('tsTeam','Team name',9,26,0.5),
+        row('tsSub','Team subtitle',7,18,0.5),
+        row('tsDetail','Above details',8,20,0.5),
+        row('tsScore','Score tile',12,34,1),
+        row('tsSmall','Small card scale',0.6,1.8,0.05),
+        row('gsText','Group-stage text',0.6,1.8,0.05),
+        head('Spacing'),
+        row('tlTop','Above timeline',0,80,2),
+        row('tlBot','Below timeline',0,120,2),
+        row('lblTop','Above stage labels',0,120,2),
+        row('lblBot','Below stage labels',0,120,2),
+        row('snapTop','Bracket lock offset (top)',0,200,2),
+        head('Timeline'),
+        row('tlScale','Timeline scale',0.5,2,0.05),
+        row('tlLen','Timeline length',400,1600,10),
+        row('tlBtn','On button size',16,60,1),
+        row('tlTitleGap','Title ↔ track gap',0,40,1),
+        row('field','Attraction field',1,80,1),
+        row('normalH','Normal line height',2,40,1),
+        row('between','Lines between days',0,40,1),
+        row('thick','Line thickness',0.5,6,0.5),
+        row('selH','Selector height',8,60,1),
+        row('selW','Selector thickness',1,12,0.5),
+        h('div',{key:'hint',style:{gridColumn:'1 / -1',fontSize:9.5,color:C.faint2,marginTop:4,letterSpacing:'0.04em'}}, 'drag the header to move · type "debug" / wcDebug() to toggle')));
+  }
+
+  /* ---------- BRACKET ---------- */
+  // a knockout round is complete when all its matches are final (real result)
+  roundComplete(round){
+    const slots = this.state.data.knockout.filter(k=>k.round===round);
+    if(!slots.length) return false;
+    return slots.every(k=>{
+      const r=this.koFixtureFor(k);
+      return r && r.status==='final' && r.winnerId;
+    });
+  }
+  // Two adjacent rounds render LARGE: the active round (earliest not finished) and
+  // the next one. As a round finishes it collapses to SMALL and the following round
+  // expands. (R32+R16 now → finish R32 → R16+QF → finish R16 → QF+SF → …)
+  bracketFormats(){
+    const order=['R32','R16','QF','SF','F'];
+    let active=order.findIndex(r=>!this.roundComplete(r));
+    if(active<0) active=order.length-1;            // tournament over → keep final large
+    const fmt={};
+    order.forEach((r,i)=> fmt[r]= (i===active||i===active+1)?'large':'small');
+    fmt.TP='small';
+    return fmt;
+  }
+  bracketGeom(fmt){
+    const rowH=this.state.dbg.rowH, topPad=30, GAP=this.state.dbg.colGap, WL=250, WS=152;
+    const w=(r)=> (fmt && fmt[r]==='large') ? WL : WS;
+    const order=['R32','R16','QF','SF'];
+    const xL={}; let x=0;
+    order.forEach(r=>{ xL[r]=x; x += w(r)+GAP; });
+    const xFinal=x, wF=w('F');
+    const centerX = xFinal + wF/2;
+    const rx=(lx,ww)=> 2*centerX - lx - ww;
+    const cols={};
+    order.forEach(r=> cols[r]={L:xL[r], R:rx(xL[r],w(r)), w:w(r)});
+    cols.F={x:xFinal, w:wF};
+    const r32Y=i=>topPad+rowH*(i+0.5);
+    const finalY=topPad+rowH*4;
+    const width = cols.R32.R + cols.R32.w;
+    const height = topPad*2 + 8*rowH;
+    return {rowH,topPad,WL,WS,cols,centerX,r32Y,finalY,width,height};
+  }
+  // ORCHESTRATOR: builds the full or half bracket, scales it to fit the available
+  // width (never cropped), and adds the flip control + swipe on narrow screens.
+  renderBracket(C){
+    const h = React.createElement, S = this.state, T = this.T, youPlay = S.youPlay;
+    const fmt = this.bracketFormats();
+    const days = this.tlData();
+    this._tlOn = S.timeline && !youPlay && days.length>=2;   // drives per-match highlight
+    this._tlSelIso = days.length ? this.tlSelectedIso(days) : null;
+    const narrow = !!S.bkW && S.bkW < 900;
+    const built = narrow ? this.buildHalf(C, fmt, S.bkSide) : this.buildFull(C, fmt);
+    const labelH = 13, lblTop = S.dbg.lblTop, lblBot = S.dbg.lblBot;
+    const availW = S.bkW || built.width;
+    let scale = Math.min(1, availW / built.width);
+    if(narrow) scale = Math.max(scale, 0.5);   // readability floor on phones (scrolls if needed)
+    scale = scale * (S.dbg.scale || 1);        // debug: shrink everything (incl. text) to fit vertically
+    this._bkScale = scale;
+    const totalH = built.height + labelH + lblTop + lblBot;
+    const stage = h('div',{style:{width:Math.round(built.width*scale), height:Math.round(totalH*scale),
+        margin:'0 auto', position:'relative'}},
+      h('div',{style:{width:built.width, position:'absolute', top:0, left:0, transformOrigin:'top left', transform:`scale(${scale})`}},
+        h('div',{style:{position:'relative',height:labelH,marginTop:lblTop,marginBottom:lblBot}}, built.labelRow),
+        built.inner));
+    const playLabel = S.lang==='es'?'Haz tu cuadro':'Play your bracket';
+    return h('section',{style:{scrollSnapAlign:'start'}},
+      this.sectionHeader(C,'02',T.bracket,
+        h('div',{style:{display:'flex',alignItems:'center',gap:16}},
+          h('span',{title: S.source==='live'?'Real data from the live snapshot':'Bundled demo seed — run tools/fetch-live.mjs for live data',
+            style:{fontSize:9.5,letterSpacing:'0.16em',fontWeight:700,textTransform:'uppercase',
+              padding:'3px 7px',borderRadius:5,
+              color: S.source==='live'?C.accent:C.faint2,
+              border:`1px solid ${S.source==='live'?this.rgba(C.accent,0.5):C.rule}`,
+              background: S.source==='live'?this.rgba(C.accent,0.08):'transparent'}},
+            S.source==='live'?'● Live':'Demo'),
+          (S.generatedAt||S.lastUpdated)?h('span',{style:{fontSize:11,letterSpacing:'0.12em',color:C.faint2,textTransform:'uppercase',display:'inline-flex',alignItems:'center',gap:7}},
+            S.refreshing?h('span',{style:{display:'inline-block',width:9,height:9,border:`1.5px solid ${C.rule}`,borderTopColor:C.accent,borderRadius:'50%',animation:'wcspin .8s linear infinite'}}):null,
+            `[${T.updated} ${new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit'}).format(new Date(S.generatedAt||S.lastUpdated))}]`,
+            S.autoRefresh?h('span',{title:S.lang==='es'?'Actualización automática activada':'Auto-refresh on',
+              style:{fontSize:8.5,letterSpacing:'0.14em',color:C.accent,fontWeight:700}},'· AUTO'):null):null)),
+      this.renderTimeline(C, days),
+      narrow?this.renderFlip(C):null,
+      h('div',{id:'wc-bk-outer', style:{width:'100%',overflowX:'auto',paddingBottom:14},
+        onTouchStart:(ev)=>{ this._tsX=ev.touches[0].clientX; this._tsY=ev.touches[0].clientY; },
+        onTouchEnd:(ev)=>{ if(this._tsX==null||!narrow) return; const t=ev.changedTouches[0];
+          const dx=t.clientX-this._tsX, dy=t.clientY-this._tsY; this._tsX=null;
+          if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)) this.setState({bkSide: dx<0?'R':'L'}); }},
+        stage));
+  }
+  // segmented flip control (narrow screens) — switch which half is shown
+  renderFlip(C){
+    const h = React.createElement, S = this.state;
+    const tab=(side,label)=>h('button',{onClick:()=>this.setState({bkSide:side}),className:'wcbtn',
+      style:{font:'inherit',fontSize:12.5,cursor:'pointer',padding:'7px 15px',borderRadius:8,
+        border:`1px solid ${S.bkSide===side?C.accent:C.rule}`,
+        background:S.bkSide===side?this.rgba(C.accent,0.1):'transparent', color:S.bkSide===side?C.accent:C.fg}}, label);
+    return h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:16,flexWrap:'wrap'}},
+      tab('L', S.lang==='es'?'Lado izquierdo':'Left side'),
+      tab('R', S.lang==='es'?'Lado derecho':'Right side'),
+      h('span',{style:{fontSize:11,color:C.faint2}}, S.lang==='es'?'· desliza para cambiar':'· swipe to flip'));
+  }
+  // FULL mirrored bracket → {inner,labelRow,width,height}
+  buildFull(C, fmt){
+    const h = React.createElement, S = this.state, T = this.T, youPlay = S.youPlay;
+    const G = this.bracketGeom(fmt);
+    const ko = S.data.knockout;
+    const bySlot = Object.fromEntries(ko.map(k=>[k.slot,k]));
+
+    const r32L = ['r32_1','r32_2','r32_3','r32_4','r32_5','r32_6','r32_7','r32_8'];
+    const r32R = ['r32_9','r32_10','r32_11','r32_12','r32_13','r32_14','r32_15','r32_16'];
+    const r16L = ['r16_1','r16_2','r16_3','r16_4'], r16R=['r16_5','r16_6','r16_7','r16_8'];
+    const qfL=['qf_1','qf_2'], qfR=['qf_3','qf_4'];
+
+    const r32idx = {}; r32L.forEach((s,i)=>r32idx[s]=i); r32R.forEach((s,i)=>r32idx[s]=i);
+    const childrenOf = {
+      r16_1:['r32_1','r32_2'],r16_2:['r32_3','r32_4'],r16_3:['r32_5','r32_6'],r16_4:['r32_7','r32_8'],
+      r16_5:['r32_9','r32_10'],r16_6:['r32_11','r32_12'],r16_7:['r32_13','r32_14'],r16_8:['r32_15','r32_16'],
+      qf_1:['r16_1','r16_2'],qf_2:['r16_3','r16_4'],qf_3:['r16_5','r16_6'],qf_4:['r16_7','r16_8'],
+      sf_1:['qf_1','qf_2'],sf_2:['qf_3','qf_4'],
+      final:['sf_1','sf_2'],third:['sf_1','sf_2'],
+    };
+    const ycache = {};
+    const yOf = (slot)=>{   // geometric centre — used to PLACE the card
+      if(ycache[slot]!=null) return ycache[slot];
+      let y;
+      if(r32idx[slot]!=null) y = G.r32Y(r32idx[slot]);
+      else { const ch=childrenOf[slot]; y=(yOf(ch[0])+yOf(ch[1]))/2; }
+      ycache[slot]=y; return y;
+    };
+    // connector anchor: a large card's measured "vs." line, else the card centre
+    const isLargeSlot = (slot)=> fmt[bySlot[slot].round]==='large';
+    const yLine = (slot)=> (!youPlay && isLargeSlot(slot) && S.vsY && S.vsY[slot]!=null) ? S.vsY[slot] : yOf(slot);
+
+    const nodes = [];
+    const place = (el, x, y, w)=> nodes.push(h('div',{key:nodes.length,
+      style:{position:'absolute',left:x,top:y,width:w,transform:'translateY(-50%)'}}, el));
+    // render a slot's card per its round's current format (pick buttons in You-Play)
+    const card=(slot, side)=>{ const m=bySlot[slot];
+      if(youPlay) return this.koNode(C, m, m.round==='F');
+      return (fmt[m.round]==='large') ? this.r32Card(C,m,side) : this.koNode(C,m, m.round==='F');
+    };
+
+    r32L.forEach((slot,i)=> place(card(slot,'L'), G.cols.R32.L, G.r32Y(i), G.cols.R32.w));
+    r32R.forEach((slot,i)=> place(card(slot,'R'), G.cols.R32.R, G.r32Y(i), G.cols.R32.w));
+    r16L.forEach((slot)=> place(card(slot,'L'), G.cols.R16.L, yOf(slot), G.cols.R16.w));
+    r16R.forEach((slot)=> place(card(slot,'R'), G.cols.R16.R, yOf(slot), G.cols.R16.w));
+    qfL.forEach((slot)=> place(card(slot,'L'), G.cols.QF.L, yOf(slot), G.cols.QF.w));
+    qfR.forEach((slot)=> place(card(slot,'R'), G.cols.QF.R, yOf(slot), G.cols.QF.w));
+    place(card('sf_1','L'), G.cols.SF.L, yOf('sf_1'), G.cols.SF.w);
+    place(card('sf_2','R'), G.cols.SF.R, yOf('sf_2'), G.cols.SF.w);
+    // Final + (emblem → champion crest once decided) + third place
+    const finalY = yOf('final');
+    place(card('final','L'), G.cols.F.x, finalY, G.cols.F.w);
+    const champ = this.championId();
+    if(champ){
+      const cn = this.championNode(C, champ); const fcx = G.cols.F.x + G.cols.F.w/2;
+      nodes.push(h('div',{key:'champ',style:{position:'absolute',left:fcx-cn.Wbox/2,width:cn.Wbox,height:cn.Hbox,
+        top:finalY-cn.Hbox-(S.dbg.chTop!=null?S.dbg.chTop:58),
+        transform:`scale(${S.dbg.chScale||1})`,transformOrigin:'center bottom'}}, ...cn.els));
+    } else {
+      nodes.push(h('div',{key:'trophy',style:{position:'absolute',left:G.cols.F.x,width:G.cols.F.w,top:finalY-(S.dbg.embTop||250),textAlign:'center'}},
+        h('img',{src:'img/2026_FIFA_World_Cup_emblem.svg', alt:'2026 FIFA World Cup', crossOrigin:'anonymous',
+          style:{height:160*(S.dbg.embScale||1),width:'auto',maxWidth:'100%',display:'inline-block',objectFit:'contain'}}),
+        h('div',{style:{fontSize:10,letterSpacing:'0.2em',textTransform:'uppercase',color:C.gold,marginTop:8,fontWeight:600}},T.rounds.F)));
+    }
+    nodes.push(h('div',{key:'third',style:{position:'absolute',left:G.cols.F.x,width:G.cols.F.w,top:finalY+170,transform:'translateY(-50%)'}},
+      h('div',{style:{fontSize:10,letterSpacing:'0.18em',textTransform:'uppercase',color:C.faint2,textAlign:'center',marginBottom:6}},T.thirdPlace),
+      this.koNode(C,bySlot['third'])));
+
+    // connectors — anchored on each large card's "vs." line (small cards anchor at
+    // centre). A horizontal gap + filled dot is drawn wherever a line meets a LARGE
+    // card, at either end. Endpoints update once the vs-lines are measured.
+    const segs = []; const hlSegs = []; const circles = []; const CR = 9; const GAPX = 11; const e = G.cols;
+    const ch = (slot)=>({ y:yLine(slot), color:this.hlPathColor(slot) });   // child line + its highlight colour
+    const elbow=(childEdgeX,parentEdgeX,children,parentY,childLarge,parentLarge)=>{
+      const dir = parentEdgeX>childEdgeX ? 1 : -1;
+      const mid = (childEdgeX+parentEdgeX)/2;
+      const ex = parentEdgeX - (parentLarge?dir*GAPX:0);     // gap before a large parent (no dot)
+      children.forEach(c=>{ const cy = c.y;
+        const sx = childEdgeX + (childLarge?dir*GAPX:0);      // gap after a large child
+        if(childLarge) circles.push({x:sx, y:cy, color:c.color});
+        const dy = parentY - cy, down = dy>=0?1:-1;
+        const r = Math.min(CR, Math.abs(mid-sx), Math.abs(dy)/2, Math.abs(ex-mid));
+        const d = `M ${sx} ${cy} L ${mid-dir*r} ${cy} Q ${mid} ${cy} ${mid} ${cy+down*r} L ${mid} ${parentY-down*r} Q ${mid} ${parentY} ${mid+dir*r} ${parentY} L ${ex} ${parentY}`;
+        if(c.color) hlSegs.push({d, color:c.color}); else segs.push(d);
+      });
+    };
+    const Lg = {R32:fmt.R32==='large',R16:fmt.R16==='large',QF:fmt.QF==='large',SF:fmt.SF==='large',F:fmt.F==='large'};
+    for(let j=0;j<4;j++) elbow(e.R32.L+e.R32.w, e.R16.L, [ch(r32L[2*j]),ch(r32L[2*j+1])], yLine(r16L[j]), Lg.R32, Lg.R16);
+    for(let j=0;j<4;j++) elbow(e.R32.R, e.R16.R+e.R16.w, [ch(r32R[2*j]),ch(r32R[2*j+1])], yLine(r16R[j]), Lg.R32, Lg.R16);
+    for(let k=0;k<2;k++) elbow(e.R16.L+e.R16.w, e.QF.L, [ch(r16L[2*k]),ch(r16L[2*k+1])], yLine(qfL[k]), Lg.R16, Lg.QF);
+    for(let k=0;k<2;k++) elbow(e.R16.R, e.QF.R+e.QF.w, [ch(r16R[2*k]),ch(r16R[2*k+1])], yLine(qfR[k]), Lg.R16, Lg.QF);
+    elbow(e.QF.L+e.QF.w, e.SF.L, [ch(qfL[0]),ch(qfL[1])], yLine('sf_1'), Lg.QF, Lg.SF);
+    elbow(e.QF.R, e.SF.R+e.SF.w, [ch(qfR[0]),ch(qfR[1])], yLine('sf_2'), Lg.QF, Lg.SF);
+    elbow(e.SF.L+e.SF.w, e.F.x, [ch('sf_1')], yLine('final'), Lg.SF, Lg.F);
+    elbow(e.SF.R, e.F.x+e.F.w, [ch('sf_2')], yLine('final'), Lg.SF, Lg.F);
+
+    const svg = h('svg',{width:G.width,height:G.height,style:{position:'absolute',left:0,top:0,pointerEvents:'none',overflow:'visible'}},
+      h('path',{d:segs.join(' '),stroke:C.rule,strokeWidth:1.25,fill:'none',strokeLinejoin:'round',strokeLinecap:'round'}),
+      hlSegs.map((s,i)=>h('path',{key:'h'+i,d:s.d,stroke:s.color,strokeWidth:2.5,fill:'none',strokeLinejoin:'round',strokeLinecap:'round'})),
+      circles.map((c,i)=>h('circle',{key:'c'+i,cx:c.x,cy:c.y,r:c.color?3.5:3,fill:c.color||C.faint2})));
+
+    // round labels (positioned per column)
+    const labelRow = h('div',{style:{position:'relative',width:G.width}},
+      [[e.R32.L,e.R32.w,T.rounds.R32],[e.R16.L,e.R16.w,T.rounds.R16],[e.QF.L,e.QF.w,T.rounds.QF],[e.SF.L,e.SF.w,T.rounds.SF],
+       [e.F.x,e.F.w,T.rounds.F],
+       [e.SF.R,e.SF.w,T.rounds.SF],[e.QF.R,e.QF.w,T.rounds.QF],[e.R16.R,e.R16.w,T.rounds.R16],[e.R32.R,e.R32.w,T.rounds.R32]]
+      .map((c,i)=>h('div',{key:i,style:{position:'absolute',left:c[0],width:c[1],textAlign:'center',
+        fontSize:10.5,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint2,fontWeight:500}},c[2])));
+
+    const inner = h('div',{id:'wc-bk-inner',style:{position:'relative',width:G.width,height:G.height,margin:'0 auto'}}, svg, ...nodes);
+    return {inner, labelRow, width:G.width, height:G.height};
+  }
+  // HALF bracket (one side R32→Final), linear left→right, for narrow screens.
+  buildHalf(C, fmt, side){
+    const h = React.createElement, S = this.state, T = this.T, youPlay = S.youPlay;
+    const bySlot = Object.fromEntries(S.data.knockout.map(k=>[k.slot,k]));
+    const rowH=S.dbg.rowH, topPad=30, GAP=S.dbg.colGap, WL=250, WS=152;
+    const w=(r)=> fmt[r]==='large'?WL:WS;
+    const order=['R32','R16','QF','SF','F'];
+    const xs={}; let x=0; order.forEach(r=>{ xs[r]=x; x += w(r)+GAP; });
+    const width = x - GAP, height = topPad*2 + 8*rowH;
+    const r32Y=i=>topPad+rowH*(i+0.5);
+    const L = side!=='R';
+    const r32 = L?['r32_1','r32_2','r32_3','r32_4','r32_5','r32_6','r32_7','r32_8']:['r32_9','r32_10','r32_11','r32_12','r32_13','r32_14','r32_15','r32_16'];
+    const r16 = L?['r16_1','r16_2','r16_3','r16_4']:['r16_5','r16_6','r16_7','r16_8'];
+    const qf  = L?['qf_1','qf_2']:['qf_3','qf_4'];
+    const sf  = L?'sf_1':'sf_2';
+    const childrenOf = {
+      r16_1:['r32_1','r32_2'],r16_2:['r32_3','r32_4'],r16_3:['r32_5','r32_6'],r16_4:['r32_7','r32_8'],
+      r16_5:['r32_9','r32_10'],r16_6:['r32_11','r32_12'],r16_7:['r32_13','r32_14'],r16_8:['r32_15','r32_16'],
+      qf_1:['r16_1','r16_2'],qf_2:['r16_3','r16_4'],qf_3:['r16_5','r16_6'],qf_4:['r16_7','r16_8'],
+      sf_1:['qf_1','qf_2'],sf_2:['qf_3','qf_4'], final:['sf_1','sf_2'],
+    };
+    const r32idx={}; ['r32_1','r32_2','r32_3','r32_4','r32_5','r32_6','r32_7','r32_8'].forEach((s,i)=>r32idx[s]=i);
+    ['r32_9','r32_10','r32_11','r32_12','r32_13','r32_14','r32_15','r32_16'].forEach((s,i)=>r32idx[s]=i);
+    const yc={}; const yOf=(slot)=>{ if(yc[slot]!=null)return yc[slot]; let y;
+      if(r32idx[slot]!=null) y=r32Y(r32idx[slot]); else { const ch=childrenOf[slot]; y=(yOf(ch[0])+yOf(ch[1]))/2; } yc[slot]=y; return y; };
+    const isLargeSlot=(slot)=>fmt[bySlot[slot].round]==='large';
+    const yLine=(slot)=>(!youPlay && isLargeSlot(slot) && S.vsY && S.vsY[slot]!=null)?S.vsY[slot]:yOf(slot);
+    const card=(slot)=>{ const m=bySlot[slot]; if(youPlay) return this.koNode(C,m,m.round==='F');
+      return fmt[m.round]==='large'?this.r32Card(C,m,'L'):this.koNode(C,m,m.round==='F'); };
+    const nodes=[]; const place=(el,xx,yy,ww)=>nodes.push(h('div',{key:nodes.length,
+      style:{position:'absolute',left:xx,top:yy,width:ww,transform:'translateY(-50%)'}}, el));
+    r32.forEach((slot,i)=>place(card(slot), xs.R32, r32Y(i), w('R32')));
+    r16.forEach((slot)=>place(card(slot), xs.R16, yOf(slot), w('R16')));
+    qf.forEach((slot)=>place(card(slot), xs.QF, yOf(slot), w('QF')));
+    place(card(sf), xs.SF, yOf(sf), w('SF'));
+    const finalY=yOf('final');
+    place(card('final'), xs.F, finalY, w('F'));
+    const champH = this.championId();
+    if(champH){
+      const cn = this.championNode(C, champH); const fcx = xs.F + w('F')/2;
+      nodes.push(h('div',{key:'champ',style:{position:'absolute',left:fcx-cn.Wbox/2,width:cn.Wbox,height:cn.Hbox,
+        top:finalY-cn.Hbox-(S.dbg.chTop!=null?S.dbg.chTop:58),
+        transform:`scale(${S.dbg.chScale||1})`,transformOrigin:'center bottom'}}, ...cn.els));
+    } else {
+      nodes.push(h('div',{key:'tr',style:{position:'absolute',left:xs.F,width:w('F'),top:finalY-(S.dbg.embTop||250),textAlign:'center'}},
+        h('img',{src:'img/2026_FIFA_World_Cup_emblem.svg',alt:'2026 FIFA World Cup',crossOrigin:'anonymous',
+          style:{height:150*(S.dbg.embScale||1),width:'auto',maxWidth:'100%',display:'inline-block',objectFit:'contain'}}),
+        h('div',{style:{fontSize:10,letterSpacing:'0.2em',textTransform:'uppercase',color:C.gold,marginTop:8,fontWeight:600}},T.rounds.F)));
+    }
+    const segs=[],hlSegs=[],circles=[],CR=9,GAPX=11;
+    const Lg={R32:fmt.R32==='large',R16:fmt.R16==='large',QF:fmt.QF==='large',SF:fmt.SF==='large',F:fmt.F==='large'};
+    const ch=(slot)=>({y:yLine(slot), color:this.hlPathColor(slot)});
+    const elbow=(cEdge,pEdge,children,pY,cL,pL)=>{ const dir=pEdge>cEdge?1:-1; const mid=(cEdge+pEdge)/2;
+      const ex=pEdge-(pL?dir*GAPX:0);
+      children.forEach(c=>{ const cy=c.y; const sx=cEdge+(cL?dir*GAPX:0); if(cL)circles.push({x:sx,y:cy,color:c.color});
+        const dy=pY-cy,down=dy>=0?1:-1; const r=Math.min(CR,Math.abs(mid-sx),Math.abs(dy)/2,Math.abs(ex-mid));
+        const d=`M ${sx} ${cy} L ${mid-dir*r} ${cy} Q ${mid} ${cy} ${mid} ${cy+down*r} L ${mid} ${pY-down*r} Q ${mid} ${pY} ${mid+dir*r} ${pY} L ${ex} ${pY}`;
+        if(c.color) hlSegs.push({d,color:c.color}); else segs.push(d); }); };
+    for(let j=0;j<4;j++) elbow(xs.R32+w('R32'), xs.R16, [ch(r32[2*j]),ch(r32[2*j+1])], yLine(r16[j]), Lg.R32, Lg.R16);
+    for(let k=0;k<2;k++) elbow(xs.R16+w('R16'), xs.QF, [ch(r16[2*k]),ch(r16[2*k+1])], yLine(qf[k]), Lg.R16, Lg.QF);
+    elbow(xs.QF+w('QF'), xs.SF, [ch(qf[0]),ch(qf[1])], yLine(sf), Lg.QF, Lg.SF);
+    elbow(xs.SF+w('SF'), xs.F, [ch(sf)], yLine('final'), Lg.SF, Lg.F);
+    const svg=h('svg',{width:width,height:height,style:{position:'absolute',left:0,top:0,pointerEvents:'none',overflow:'visible'}},
+      h('path',{d:segs.join(' '),stroke:C.rule,strokeWidth:1.25,fill:'none',strokeLinejoin:'round',strokeLinecap:'round'}),
+      hlSegs.map((s,i)=>h('path',{key:'h'+i,d:s.d,stroke:s.color,strokeWidth:2.5,fill:'none',strokeLinejoin:'round',strokeLinecap:'round'})),
+      circles.map((c,i)=>h('circle',{key:'c'+i,cx:c.x,cy:c.y,r:c.color?3.5:3,fill:c.color||C.faint2})));
+    const labelRow=h('div',{style:{position:'relative',width:width}},
+      order.map((r,i)=>h('div',{key:i,style:{position:'absolute',left:xs[r],width:w(r),textAlign:'center',
+        fontSize:10.5,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint2,fontWeight:500}}, T.rounds[r])));
+    const inner=h('div',{id:'wc-bk-inner',style:{position:'relative',width:width,height:height,margin:'0 auto'}}, svg, ...nodes);
+    return {inner, labelRow, width, height};
+  }
+
+  // is every match in a group final? → its winner/runner-up are real, not projected
+  groupComplete(g){ return this.state.data.groupMatches.filter(m=>m.group===g).every(m=>m.status==='final'); }
+  // resolve a side for display: a SOLID team only when it's actually settled,
+  // otherwise probability bars (so unclinched/undecided slots never look locked).
+  sideDesc(feeder){
+    const S = this.state, N = window.WC.simulation.contendersShown;
+    if(feeder.type==='groupWinner' || feeder.type==='groupRunnerUp'){
+      const g = feeder.ref, idx = feeder.type==='groupWinner'?0:1;
+      const sub = feeder.type==='groupWinner'?this.T.winner(g):this.T.runnerUp(g);
+      const r = S.standings[g][idx], cl = S.clinch[g][r.id]||{};
+      // settled if the group is mathematically done for this slot
+      const settled = this.groupComplete(g) || (idx===0 ? cl.clinchedFirst : (cl.clinched && !cl.clinchedFirst));
+      if(settled) return {kind:'team', id:r.id, sub, clinched:true};
+      const key = idx===0?'win':'ru';
+      const cs = S.standings[g].map(x=>({id:x.id, p:S.sim.teamProb[x.id][key]})).filter(c=>c.p>0.005).sort((a,b)=>b.p-a.p);
+      return {kind:'contested', sub, contenders:cs.slice(0,N)};
+    }
+    if(feeder.type==='bestThird'){ const cs=S.sim.slotContenders[feeder.ref]||[];
+      const gs = window.WC.bestThirdCandidateGroups[feeder.ref]||[];
+      const label = gs.slice(0,-1).join(', ')+(gs.length>1?(this.state.lang==='es'?' o ':' or '):'')+gs[gs.length-1];
+      return {kind:'contested', sub:this.T.thirdFrom(label), contenders:cs.slice(0,N)}; }
+    return {kind:'tbd'};
+  }
+  r32Card(C, m, side){
+    const h = React.createElement, S = this.state, T = this.T, D = S.dbg;
+    // Post-32 (§6.4): group stage fully decided → clean matchup + result, no bars.
+    if(S.groupDone){
+      const {real, sideA, sideB} = this.slotMatch(m);   // feed-truth teams when a result exists
+      const inst=this.koInst(m, real);
+      const scored = real && real.status!=='scheduled' && real.homeGoals!=null;
+      const decided = real && real.status==='final' && real.winnerId;
+      const homeOk = !!real || this.sideSettled(m.homeFeeder);
+      const awayOk = !!real || this.sideSettled(m.awayFeeder);
+      const tbd = S.lang==='es'?'Por definir':'TBD';
+      const cv = S.dbg.cardV;   // large-card vertical breathing (debug-tunable)
+      const koNo=(ref)=>{ const k=S.data.knockout.find(x=>x.slot===ref); return k?k.matchNo:''; };
+      const subFor=(f)=> f.type==='groupWinner'?T.winner(f.ref):f.type==='groupRunnerUp'?T.runnerUp(f.ref):
+        f.type==='bestThird'?(S.lang==='es'?'Mejor 3.º':'Best 3rd'):
+        f.type==='matchWinner'?((S.lang==='es'?'Ganador M':'Winner M')+koNo(f.ref)):'';
+      const row=(id,f,ok,win)=>{ const tm=(ok&&id)?window.WC.byId[id]:null; const col=tm?this.hlColor(id):null;
+        const g = (scored&&tm) ? (id===real.home?real.homeGoals:real.awayGoals) : null;
+        return h('div',{onClick:tm?(e)=>{e.stopPropagation();this.openTeamMenu(id, e);}:undefined,
+          style:{display:'flex',alignItems:'center',gap:10,cursor:tm?'pointer':'default',padding:`${cv}px 0`,opacity:decided&&!win?0.5:1}},
+          h('div',{style:Object.assign({display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0},
+            col?{border:`2.5px solid ${this.vivid(col)}`,borderRadius:11,padding:'2px 8px 2px 5px',margin:'-3px 0'}:{})},
+            tm?this.flagToken(C,tm,26,{gold:tm.isWorldCupWinner}):h('span',{style:{width:26,height:26,borderRadius:'50%',border:`1px dashed ${C.rule}`,flex:'0 0 auto'}}),
+            h('div',{style:{minWidth:0,flex:1}},
+              h('div',{style:{fontWeight:win?700:600,fontSize:D.tsTeam,color:tm?C.fg:C.faint2}}, tm?this.teamName(C,tm,{bold:true,size:D.tsTeam}):tbd),
+              h('div',{style:{fontSize:D.tsSub,color:C.faint,marginTop:1}}, subFor(f)))),
+          (scored&&tm)?this.scoreCell(C,g,{size:D.tsScore},real,id):null);
+      };
+      const tl = this.tlMatch(m);   // on the timeline's selected day → accent highlight
+      const geom = (S.cardGeom||{})[m.slot];
+      const gapSide = side==='R' ? 'left' : 'right';   // edge the connector leaves from
+      const bColor = tl ? C.accent : C.cardLine;
+      return h('div',{className:'wc-bigcard','data-card':m.slot,'data-side':side,
+        style:Object.assign({position:'relative', padding:'9px 13px', borderRadius:13},
+          geom?{}:{boxShadow:`inset 0 0 0 1.5px ${bColor}`},   // un-measured: plain full border (no flash)
+          tl?{background:this.rgba(C.accent, S.theme==='dark'?0.12:0.07)}:{})},
+        geom?this.cardBorder(C, geom, gapSide, bColor):null,
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:cv+4,
+          paddingBottom:cv+3,borderBottom:`2px solid ${this.rgba(C.fg,this.state.theme==='dark'?0.34:0.28)}`,fontSize:D.tsDetail,gap:8}},
+          h('div',{style:{display:'flex',gap:8,alignItems:'baseline',minWidth:0}},
+            h('span',{style:{fontWeight:700}}, this.cityAbbr(m.city)),
+            h('span',{style:{color:C.faint}}, inst?this.fmtDayAt(inst,m.venueTz):this.fmtMonthDay(m.date.iso)),
+            real&&real.status==='live'?h('span',{style:{color:C.accent,fontWeight:700,fontSize:D.tsDetail-2,letterSpacing:'0.04em'}},'● '+(real.minute?real.minute+"'":'LIVE'))
+              :h('span',{style:{color:C.faint2,fontSize:D.tsDetail-2}}, this.fmtTimeAt(inst, m.venueTz))),
+          h('span',{style:{color:C.faint2,fontSize:D.tsDetail-2,whiteSpace:'nowrap'}}, 'Match '+m.matchNo)),
+        row(sideA,m.homeFeeder, homeOk, real&&real.winnerId===sideA),
+        h('div',{className:'wc-vsline','data-slot':m.slot,style:{display:'flex',alignItems:'center',gap:10,margin:`${cv+3}px 0`,color:C.faint2}},
+          h('div',{style:{flex:1,height:1,background:C.rule}}),
+          h('span',{style:{fontSize:11,letterSpacing:'0.08em'}}, this.T.vs),
+          h('div',{style:{flex:1,height:1,background:C.rule}})),
+        row(sideB,m.awayFeeder, awayOk, real&&real.winnerId===sideB),
+        this.koTag(real)?h('div',{style:{marginTop:cv+3,fontSize:9.5,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint2,textAlign:'right'}},'['+this.koTag(real)+']'):null);
+    }
+    const home = this.sideDesc(m.homeFeeder), away = this.sideDesc(m.awayFeeder);
+    const hl = (id)=> this.hlColor(id);
+    const anyHl = (home.id&&hl(home.id)) || (away.id&&hl(away.id));
+    const teamRow = (d)=>{
+      const tm = window.WC.byId[d.id];
+      const c = hl(d.id);
+      return h('div',{onClick:(e)=>{e.stopPropagation(); this.setState({selectedTeam:d.id});},
+        style:{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'2px 0'}},
+        c?h('span',{style:{width:7,height:7,borderRadius:'50%',background:c,flex:'0 0 auto'}}):null,
+        this.flagToken(C,tm,26,{gold:tm.isWorldCupWinner}),
+        h('div',{style:{minWidth:0,flex:1}},
+          h('div',{style:{fontWeight:600,fontSize:15.5,display:'flex',alignItems:'center',gap:6}},
+            this.teamName(C,tm,{bold:true,size:15.5}),
+            d.clinched?h('span',{style:{color:C.accent,fontSize:13}},'✓'):null),
+          h('div',{style:{fontSize:11,color:C.faint,marginTop:1}}, d.sub)));
+    };
+    const thirdBlock = (d)=> h('div',null,
+      h('div',{style:{fontSize:11,color:C.faint,marginBottom:8}}, d.sub),
+      d.contenders.length?d.contenders.map(c=>{const tm=window.WC.byId[c.id]; const col=hl(c.id);
+        return h('div',{key:c.id,onClick:(e)=>{e.stopPropagation();this.setState({selectedTeam:c.id});},
+          style:{display:'flex',alignItems:'center',gap:9,marginBottom:7,cursor:'pointer'}},
+          col?h('span',{style:{width:6,height:6,borderRadius:'50%',background:col,flex:'0 0 auto'}}):null,
+          this.flagToken(C,tm,18),
+          h('span',{style:{width:74,fontSize:12.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, this.nm(tm)),
+          h('div',{style:{flex:1,height:8,background:C.track,borderRadius:4,position:'relative',overflow:'hidden'}},
+            h('div',{className:'wcbar',style:{position:'absolute',left:0,top:0,height:'100%',width:Math.round(c.p*100)+'%',background:C.accent,borderRadius:4}})),
+          h('span',{style:{width:34,textAlign:'right',fontSize:12.5,fontWeight:600,fontVariantNumeric:'tabular-nums'}}, Math.round(c.p*100)+'%'));
+      }):h('div',{style:{fontSize:12,color:C.faint2}},'—'));
+
+    return h('div',{style:{background: anyHl?this.rgba(C.fg,this.state.theme==='dark'?0.04:0.015):'transparent',
+      borderLeft: side==='L'&&anyHl?`3px solid ${anyHl}`:'none', padding:'2px 0'}},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:12,
+        paddingBottom:10,borderBottom:`2px solid ${this.rgba(C.fg,this.state.theme==='dark'?0.34:0.28)}`,fontSize:13,gap:8}},
+        h('div',{style:{display:'flex',gap:8,alignItems:'baseline',minWidth:0}},
+          h('span',{style:{fontWeight:700}}, this.cityAbbr(m.city)),
+          h('span',{style:{color:C.faint}}, this.fmtMonthDay(m.date.iso)),
+          h('span',{style:{color:C.faint2,fontSize:11}}, this.fmtTime(m))),
+        h('span',{style:{color:C.faint2,fontSize:11,letterSpacing:'0.04em',whiteSpace:'nowrap'}}, 'Match '+m.matchNo)),
+      home.kind==='team'?teamRow(home):thirdBlock(home),
+      h('div',{className:'wc-vsline','data-slot':m.slot,style:{display:'flex',alignItems:'center',gap:10,margin:'9px 0',color:C.faint2}},
+        h('div',{style:{flex:1,height:1,background:C.rule}}),
+        h('span',{style:{fontSize:11,letterSpacing:'0.08em'}}, this.T.vs),
+        h('div',{style:{flex:1,height:1,background:C.rule}})),
+      away.kind==='team'?teamRow(away):thirdBlock(away));
+  }
+  // is a feeder's participant already decided? (group winners/RU/3rds once groups
+  // are done; a match-winner once that match is final) → lets us "place" qualified
+  // teams into the next round before it's drawn in the feed.
+  sideSettled(feeder){
+    if(feeder.type==='groupWinner'||feeder.type==='groupRunnerUp') return this.groupComplete(feeder.ref);
+    if(feeder.type==='bestThird') return !!this.state.groupDone;
+    if(feeder.type==='matchWinner' || feeder.type==='matchLoser'){
+      const m=this.state.data.knockout.find(k=>k.slot===feeder.ref); if(!m) return false;
+      const r=this.koFixtureFor(m);
+      return !!(r && r.status==='final' && r.winnerId);   // loser known once the match is final
+    }
+    return false;
+  }
+  koNode(C, m, isFinal){
+    const h = React.createElement, S = this.state, D = S.dbg, sm = D.tsSmall;
+    if(S.youPlay){
+      const {real, sideA, sideB} = this.slotMatch(m);
+      const aId = real ? sideA : this.resolveTeam(m.homeFeeder);
+      const bId = real ? sideB : this.resolveTeam(m.awayFeeder);
+      const locked = !!(real && real.status==='final' && real.winnerId);   // confirmed result
+      const winId = locked ? real.winnerId : S.picks[m.slot];              // blank until picked
+      const sideBtn=(id)=>{ const tm=id?window.WC.byId[id]:null; const won=winId===id;
+        const interactive = !locked && !!id;
+        return h('button',{disabled:!interactive,onClick:(e)=>{e.stopPropagation(); if(interactive) this.pick(m.slot,id);},className:'wcbtn',
+          style:{display:'flex',alignItems:'center',gap:7,width:'100%',font:'inherit',textAlign:'left',
+            padding:'6px 8px',border:'none',cursor:interactive?'pointer':'default',borderRadius:7,
+            background:won?this.rgba(C.accent,0.16):'transparent',color:won?C.accent:C.fg,
+            opacity:winId&&!won?0.4:1}},
+          tm?this.flagToken(C,tm,16,{gold:tm.isWorldCupWinner}):h('span',{style:{width:16,height:16,borderRadius:'50%',border:`1px dashed ${C.rule}`,flex:'0 0 auto'}}),
+          h('span',{style:{fontSize:12,fontWeight:won?600:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, tm?this.nm(tm):'—'));
+      };
+      return h('div',{style:{background:C.panel,border:`1px solid ${isFinal?C.gold:(winId?C.accent:C.cardLine)}`,borderRadius:10,padding:'5px 4px',
+        boxShadow: isFinal?`0 0 0 1px ${C.gold}`:'none'}},
+        sideBtn(aId),
+        h('div',{style:{height:1,background:C.rule,margin:'3px 6px'}}), sideBtn(bId),
+        locked?h('div',{style:{fontSize:7.5,letterSpacing:'0.14em',textTransform:'uppercase',color:C.faint2,textAlign:'right',padding:'1px 6px 0'}},S.lang==='es'?'Resultado':'Result'):null);
+    }
+    // Once both participants are settled (or the match is in the feed) render a full
+    // matchup card — teams placed, scores when played — like the R32 cards. Until
+    // then, the compact city/date placeholder.
+    const {real, sideA, sideB} = this.slotMatch(m);            // feed-truth when a result exists
+    const homeOk = !!real || this.sideSettled(m.homeFeeder);   // this side's team is confirmed
+    const awayOk = !!real || this.sideSettled(m.awayFeeder);
+    const settled = homeOk || awayOk;                          // show as soon as one side qualifies
+    if(settled){
+      const scored  = real && real.status!=='scheduled' && real.homeGoals!=null;
+      const live    = real && real.status==='live';
+      const decided = real && real.status==='final' && real.winnerId;
+      const inst = this.koInst(m, real);
+      const tStr = this.fmtTimeAt(inst, m.venueTz);
+      const dStr = inst ? this.fmtDayAt(inst, m.venueTz) : this.fmtMonthDay(m.date.iso);
+      const tbd = this.state.lang==='es'?'Por definir':'TBD';
+      const row=(id, ok, win)=>{ const tm=(ok&&id)?window.WC.byId[id]:null; const col=tm?this.hlColor(id):null;
+        const g = (scored&&tm) ? (id===real.home?real.homeGoals:real.awayGoals) : null;
+        return h('div',{onClick: tm?(e)=>{e.stopPropagation();this.openTeamMenu(id, e);}:undefined,
+          style:{display:'flex',alignItems:'center',gap:8,cursor:tm?'pointer':'default',padding:'4px 2px',
+            opacity: decided&&!win?0.45:1}},
+          h('div',{style:Object.assign({display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0},
+            col?{border:`2px solid ${this.vivid(col)}`,borderRadius:9,padding:'1px 6px 1px 3px',margin:'-2px 0'}:{})},
+            tm?this.flagToken(C,tm,20,{gold:tm.isWorldCupWinner}):h('span',{style:{width:20,height:20,borderRadius:'50%',flex:'0 0 auto',border:`1px dashed ${C.rule}`}}),
+            h('span',{style:{flex:1,minWidth:0,fontSize:(isFinal?14.5:13)*sm,fontWeight:win?700:500,color:tm?C.fg:C.faint2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, tm?this.nm(tm):tbd)),
+          (scored&&tm)?this.scoreCell(C,g,{size:(isFinal?20:14)*sm},real,id):null);
+      };
+      const tl = this.tlMatch(m);
+      return h('div',{style:{background: tl?this.rgba(C.accent,S.theme==='dark'?0.12:0.07):C.panel,
+        border:`1px solid ${tl?C.accent:(isFinal?C.gold:(live?C.accent:C.cardLine))}`,borderRadius:10,
+        padding:'7px 9px', boxShadow: tl?`0 0 0 2px ${this.rgba(C.accent,0.25)}`:(isFinal?`0 0 0 1px ${C.gold}`:'none')}},
+        h('div',{style:{marginBottom:6,paddingBottom:6,borderBottom:`1px solid ${C.rule}`}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:6}},
+            h('span',{style:{fontWeight:700,fontSize:12*sm,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, this.cityAbbr(m.city)),
+            h('span',{style:{fontSize:9.5*sm,color:C.faint2,whiteSpace:'nowrap',letterSpacing:'0.04em'}}, 'M'+m.matchNo)),
+          h('div',{style:{marginTop:2}},
+            live?h('span',{style:{fontSize:10*sm,color:C.accent,fontWeight:700,letterSpacing:'0.04em'}},'● '+(real.minute?real.minute+"'":'LIVE'))
+              :h('span',{style:{fontSize:10*sm,color:C.faint2}}, dStr+(tStr?' · '+tStr:'')))),
+        row(sideA, homeOk, real&&real.winnerId===sideA),
+        row(sideB, awayOk, real&&real.winnerId===sideB),
+        this.koTag(real)?h('div',{style:{marginTop:5,fontSize:8.5*sm,letterSpacing:'0.14em',textTransform:'uppercase',color:C.faint2,textAlign:'right'}},'['+this.koTag(real)+']'):null);
+    }
+    const pInst = this.koInst(m, null);
+    const ptl = this.tlMatch(m);
+    return h('div',{style:{background: ptl?this.rgba(C.accent,S.theme==='dark'?0.12:0.07):C.panel,
+      border:`1px solid ${ptl?C.accent:(isFinal?C.gold:C.cardLine)}`,borderRadius:10,
+      boxShadow: ptl?`0 0 0 2px ${this.rgba(C.accent,0.25)}`:'none',
+      padding:isFinal?'12px 10px':'9px 10px',textAlign:'center'}},
+      h('div',{style:{fontWeight:700,fontSize:(isFinal?15:13.5)*sm,letterSpacing:'-0.01em'}}, this.cityAbbr(m.city)),
+      h('div',{style:{fontSize:11.5*sm,color:C.faint,marginTop:2}}, pInst?this.fmtDayAt(pInst,m.venueTz):this.fmtMonthDay(m.date.iso)),
+      h('div',{style:{fontSize:10.5*sm,color:C.faint2,marginTop:1,letterSpacing:'0.02em'}}, this.fmtTimeAt(pInst, m.venueTz)),
+      h('div',{style:{fontSize:10*sm,color:C.faint2,marginTop:5,letterSpacing:'0.04em'}}, 'Match '+m.matchNo));
+  }
+
+  renderYouPlayBar(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    const picks = Object.keys(S.picks).length;
+    return h('div',{style:{position:'fixed',top:0,left:0,right:0,zIndex:70,
+      display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,
+      padding:'12px 26px',background:C.fg,color:C.surface,animation:'wcfade .18s ease-out'}},
+      h('div',{style:{display:'flex',alignItems:'baseline',gap:16,minWidth:0}},
+        h('span',{style:{fontSize:11,letterSpacing:'0.2em',textTransform:'uppercase',fontWeight:600,color:C.accent}},`[${T.yourPred}]`),
+        h('span',{style:{fontSize:13,opacity:0.7,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, T.tapAdvance)),
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,flex:'0 0 auto'}},
+        h('button',{onClick:()=>this.clearPicks(),className:'wcbtn',disabled:!picks,
+          title:S.lang==='es'?'Borrar todo':'Clear all picks',
+          style:{display:'inline-flex',alignItems:'center',gap:7,font:'inherit',fontSize:13,
+            cursor:picks?'pointer':'default',padding:'8px 14px',borderRadius:9,opacity:picks?1:0.4,
+            border:`1px solid ${this.rgba(C.surface,0.4)}`,background:'transparent',color:C.surface}},
+          h('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
+            h('polyline',{points:'3 6 5 6 21 6'}),
+            h('path',{d:'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'}),
+            h('path',{d:'M10 11v6'}), h('path',{d:'M14 11v6'}),
+            h('path',{d:'M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2'})),
+          S.lang==='es'?'Borrar':'Clear'),
+        h('button',{onClick:()=>this.exitYouPlay(),className:'wcbtn',
+          style:{font:'inherit',fontSize:13,cursor:'pointer',padding:'8px 16px',borderRadius:9,
+            border:`1px solid ${this.rgba(C.surface,0.4)}`,background:'transparent',color:C.surface}}, '← '+T.goBack)));
+  }
+
+  /* ---------- TEAM MODAL ---------- */
+  teamStats(id){
+    const S = this.state; const tm = window.WC.byId[id];
+    const r = S.standings[tm.group].find(x=>x.id===id);
+    const squad = window.WCEngine.squadFor(id, r.P, S.data.squads);
+    let yc=0, rc=0; squad.players.forEach(p=>{yc+=p.yellow;rc+=p.red;});
+    return {tm, r, squad, yc, rc};
+  }
+  renderTeamModal(C){
+    const h = React.createElement, T = this.T;
+    const {tm,r,squad,yc,rc} = this.teamStats(this.state.selectedTeam);
+    const close = ()=>this.setState({selectedTeam:null});
+    // left-aligned stat: number on one line (never wraps), label justified under it
+    const bigStat = (val,label)=>h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-start',minWidth:0}},
+      h('div',{style:{fontSize:32,fontWeight:700,letterSpacing:'-0.02em',lineHeight:1,fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}},val),
+      h('div',{style:{fontSize:10,letterSpacing:'0.12em',textTransform:'uppercase',color:C.faint,marginTop:6,whiteSpace:'nowrap'}},label));
+    const vbar = ()=>h('div',{style:{alignSelf:'flex-start',width:1,height:32,background:C.rule,margin:'1px 18px 0'}});
+    const posGroups = ['GK','DEF','MID','ATT'];
+    return h('div',{onClick:close,style:{position:'fixed',inset:0,zIndex:90,background:this.rgba('#000',0.5),
+      display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'56px 20px',overflowY:'auto',animation:'wcfade .15s'}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{width:'min(560px,100%)',background:C.surface,color:C.fg,
+        borderRadius:14,boxShadow:'0 30px 80px -20px rgba(0,0,0,0.55)',padding:'30px 32px 36px'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:16,marginBottom:26}},
+          this.flagToken(C,tm,52,{gold:tm.isWorldCupWinner}),
+          h('div',{style:{flex:1,minWidth:0}},
+            h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+              h('div',{style:{fontSize:26,fontWeight:700,letterSpacing:'-0.02em'}}, this.nm(tm)),
+              this.wcStars(C, tm, 19)),
+            h('div',{style:{fontSize:12,color:C.faint,marginTop:3,letterSpacing:'0.04em'}},
+              `${this.state.lang==='es'?'Grupo':'Group'} ${tm.group} · FIFA #${tm.fifaRank}${tm.wcTitles?` · ${tm.wcTitles}× ${this.state.lang==='es'?'Campeón mundial':'World Cup'}`:''}`)),
+          h('button',{onClick:close,style:{font:'inherit',fontSize:20,cursor:'pointer',border:'none',background:'transparent',color:C.faint,lineHeight:1}},'×')),
+        h('div',{style:{display:'flex',alignItems:'flex-start',flexWrap:'wrap',rowGap:14,padding:'4px 0 22px',borderBottom:`1px solid ${C.rule}`,marginBottom:8}},
+          bigStat(r.P,T.played), vbar(),
+          bigStat(`${r.W} / ${r.D} / ${r.L}`,T.record), vbar(),
+          bigStat((r.GD>0?'+':'')+r.GD,T.gd), vbar(),
+          bigStat(`${r.GF} · ${r.GA}`,'GF · GA')),
+        h('div',{style:{marginTop:20}},
+          posGroups.map((pos,pi)=>{
+            const players = squad.players.filter(p=>p.position===pos);
+            if(!players.length) return null;
+            return h('div',{key:pos,style:{paddingTop:16,marginTop:16,borderTop:pi===0?'none':`1px solid ${this.rgba(C.fg,0.08)}`}},
+              h('div',{style:{fontSize:10,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint,marginBottom:10}},T.pos[pi]),
+              players.map((p,i)=>h('div',{key:i,style:{display:'flex',alignItems:'baseline',gap:10,fontSize:13.5,padding:'4px 0'}},
+                p.number?h('span',{style:{width:22,color:C.faint2,fontVariantNumeric:'tabular-nums',flex:'0 0 auto',fontSize:12}},p.number):null,
+                h('span',null,p.name))));
+          }),
+          squad.coaches&&squad.coaches.length?h('div',{style:{paddingTop:16,marginTop:16,borderTop:`1px solid ${this.rgba(C.fg,0.08)}`}},
+            h('div',{style:{fontSize:10,letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint,marginBottom:10}},T.staff),
+            squad.coaches.map((c,i)=>h('div',{key:i,style:{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 0'}},
+              h('span',null,c.name), h('span',{style:{color:C.faint}},c.role)))):null)));
+  }
+
+  /* ---------- BEST-3RD POPOUT ---------- */
+  renderBest3(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    const close=()=>this.setState({showBest3:false});
+    return h('div',{onClick:close,style:{position:'fixed',inset:0,zIndex:90,background:this.rgba('#000',0.5),
+      display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'56px 20px',overflowY:'auto',animation:'wcfade .15s'}},
+      h('div',{onClick:e=>e.stopPropagation(),style:{width:'min(520px,100%)',background:C.surface,color:C.fg,
+        borderRadius:14,boxShadow:'0 30px 80px -20px rgba(0,0,0,0.55)',padding:'28px 30px 32px'}},
+        h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6}},
+          h('h3',{style:{margin:0,fontSize:22,fontWeight:700,letterSpacing:'-0.01em'}},T.best3),
+          h('button',{onClick:close,style:{font:'inherit',fontSize:20,cursor:'pointer',border:'none',background:'transparent',color:C.faint}},'×')),
+        h('div',{style:{fontSize:12.5,color:C.faint,marginBottom:18,maxWidth:'42ch',lineHeight:1.5}},
+          this.state.lang==='es'?'Los 8 mejores terceros avanzan a los dieciseisavos.':'The top 8 third-placed teams advance to the Round of 32.'),
+        h('div',{style:{display:'grid',gridTemplateColumns:'24px 1fr 30px 36px 30px 26px',gap:8,fontSize:10,
+          letterSpacing:'0.1em',textTransform:'uppercase',color:C.faint2,padding:'0 0 9px',borderBottom:`1px solid ${C.rule}`}},
+          h('span',null,'#'),h('span',null,'Team'),h('span',{style:{textAlign:'right'}},'Pts'),h('span',{style:{textAlign:'right'}},'GD'),
+          h('span',{style:{textAlign:'right'}},'GF'),h('span',{style:{textAlign:'right'}},'Grp')),
+        S.thirds.map((t,i)=>{const tm=window.WC.byId[t.row.id];const qual=i<8;
+          return h('div',{key:t.row.id,onClick:()=>this.setState({selectedTeam:t.row.id,showBest3:false}),
+            style:{display:'grid',gridTemplateColumns:'24px 1fr 30px 36px 30px 26px',gap:8,alignItems:'center',
+            fontSize:13.5,padding:'8px 0',cursor:'pointer',opacity:qual?1:0.42,
+            borderBottom:`1px solid ${this.rgba(C.fg,0.06)}`,
+            borderTop: i===8?`2px solid ${C.rule}`:'none'}},
+            h('span',{style:{color:qual?C.accent:C.faint2,fontWeight:qual?600:400,fontVariantNumeric:'tabular-nums'}},i+1),
+            h('div',{style:{display:'flex',alignItems:'center',gap:9,minWidth:0}},
+              this.flagToken(C,tm,20,{gold:tm.isWorldCupWinner}),
+              h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:qual?600:400}},this.nm(tm)),
+              qual?h('span',{style:{color:C.accent,fontSize:12}},'✓'):null),
+            h('span',{style:{textAlign:'right',fontWeight:600,fontVariantNumeric:'tabular-nums'}},t.row.Pts),
+            h('span',{style:{textAlign:'right',color:C.faint,fontVariantNumeric:'tabular-nums'}},(t.row.GD>0?'+':'')+t.row.GD),
+            h('span',{style:{textAlign:'right',color:C.faint,fontVariantNumeric:'tabular-nums'}},t.row.GF),
+            h('span',{style:{textAlign:'right',color:C.faint2,fontWeight:600}},t.g));
+        })));
+  }
+
+  /* ---------- EXPORT ---------- */
+  exportPng(){
+    const node = document.getElementById('wc-capture');
+    if(!node || !window.htmlToImage){ return; }
+    const C = this.C();
+    window.htmlToImage.toPng(node, {backgroundColor:C.surface, pixelRatio:2, cacheBust:true})
+      .then(url=>{ const a=document.createElement('a'); a.download='world-cup-2026-bracket.png'; a.href=url; a.click(); })
+      .catch(()=>{});
+  }
+}
+</script>
+</body>
+</html>

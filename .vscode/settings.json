@@ -1,0 +1,8 @@
+{
+  // The .dc.html files use Claude Design template syntax (style="{{ rootStyle }}"),
+  // which VSCode's built-in CSS linter misreads as invalid CSS. These are false
+  // positives — DCLogic resolves the expressions at runtime. Turn off embedded-CSS
+  // validation in HTML so the Problems panel only shows real issues.
+  "html.validate.styles": false,
+  "css.validate": false
+}

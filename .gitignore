@@ -1,0 +1,14 @@
+# Local secrets — NEVER commit
+.env
+.env.local
+.env.*
+
+# OS cruft
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Source / working material — not for the published site
+uploads/
+img/hd-official-2026-fifa-world-cup-transparent-png-701751712076865bw3umpw9lk.png
