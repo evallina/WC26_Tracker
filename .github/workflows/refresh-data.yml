@@ -1,0 +1,51 @@
+name: Refresh live data
+
+# Keeps wc-live.json fresh on a static host (GitHub Pages can't run tools/serve.mjs).
+# Runs the dependency-free fetcher on a schedule and commits the snapshot only when it
+# changed. The football-data.org key comes from the repo secret FOOTBALLDATA_KEY —
+# never hardcoded, never committed. Add it under:
+#   Settings -> Secrets and variables -> Actions -> New repository secret.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every ~30 min (GitHub may delay/coalesce runs)
+  workflow_dispatch: {}       # allow manual runs from the Actions tab
+
+permissions:
+  contents: write             # needed to push the refreshed snapshot
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false   # never interrupt a push mid-flight
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch latest live snapshot
+        env:
+          FOOTBALLDATA_KEY: ${{ secrets.FOOTBALLDATA_KEY }}
+        run: |
+          if [ -z "$FOOTBALLDATA_KEY" ]; then
+            echo "::warning::FOOTBALLDATA_KEY secret is not set — skipping refresh (add it in repo Settings)."
+            exit 0
+          fi
+          node tools/fetch-live.mjs --no-squads
+
+      - name: Commit snapshot if it changed
+        run: |
+          if [ -n "$(git status --porcelain wc-live.json)" ]; then
+            git config user.name  "wc26-data-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add wc-live.json
+            git commit -m "chore: refresh live data [skip ci]"
+            git push
+          else
+            echo "No change in wc-live.json — nothing to commit."
+          fi

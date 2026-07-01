@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'wc-live.json');
 const PORT = Number(process.env.PORT || 8000);
-const APP = 'World Cup 2026 Tracker.dc.html';
+const APP = 'index.html';
 const AUTO = process.env.WC_NO_AUTOREFRESH !== '1';
 const KILL_MS = 35000;            // kill a stalled fetch after 35s
 const TYPES = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',

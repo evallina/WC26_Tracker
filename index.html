@@ -238,17 +238,22 @@ class Component extends DCLogic {
       this.schedulePoll();   // re-arm polling at the cadence implied by the fresh data
     }, initial ? 30 : 260);
   }
-  // Manual Refresh: force the server to pull NOW, then reload. Timeout-guarded so a
-  // slow/stuck /api/refresh can never freeze the button (we reload anyway after 9s).
+  // Manual Refresh. Only the local dev server (tools/serve.mjs) exposes /api/refresh to
+  // force a fresh pull; on a static host (GitHub Pages) there is no backend, so we skip
+  // the doomed request entirely and just re-read ./wc-live.json — which the scheduled
+  // GitHub Action keeps fresh. Timeout-guarded so nothing can freeze the button.
   refreshLive(){
     if(this.state.refreshing) return;
     this._refreshAt = Date.now();
     this.setState({refreshing:true});
+    const finish = ()=>this.load(false);   // re-read the committed snapshot
+    const local = location.hostname==='localhost' || location.hostname==='127.0.0.1';
+    if(!local){ finish(); return; }         // static host → no /api, just reload the snapshot
     let done = false;
-    const finish = ()=>{ if(done) return; done = true; this.load(false); };
-    const t = setTimeout(finish, 9000);
+    const once = ()=>{ if(done) return; done = true; finish(); };
+    const t = setTimeout(once, 9000);
     fetch('/api/refresh',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null)
-      .then(()=>{ clearTimeout(t); finish(); });
+      .then(()=>{ clearTimeout(t); once(); });
   }
   // real knockout result for a resolved matchup, if one exists (live or final)
   realKO(round, a, b){
