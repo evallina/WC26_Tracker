@@ -8,7 +8,7 @@ name: Refresh live data
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # every ~30 min (GitHub may delay/coalesce runs)
+    - cron: '*/5 * * * *'    # every 5 min — GitHub's minimum; runs may be delayed/coalesced under load
   workflow_dispatch: {}       # allow manual runs from the Actions tab
 
 permissions:
