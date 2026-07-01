@@ -291,6 +291,30 @@
   // on any problem — missing file, fetch error, failed validation — falls back to
   // the bundled demo seed so the app always renders. The `source` field tells the UI
   // which it got ('live' vs 'demo').
+
+  // The free feed can stay 'live' long after a knockout match actually ended (its status
+  // lags, sometimes for an hour). If a fixture has been 'live' well past any plausible
+  // finish — regulation + extra time + penalties never exceed ~2h50m — AND the result is
+  // decisive, treat it as final so the winner advances instead of pulsing LIVE. A level
+  // game (penalty shootout still pending) has no decisive result, so it stays live.
+  function koWinnerFromScore(k){
+    if(k.winnerId) return k.winnerId;
+    if(k.penHome!=null && k.penAway!=null && k.penHome!==k.penAway) return k.penHome>k.penAway?k.home:k.away;
+    if(k.homeGoals!=null && k.awayGoals!=null && k.homeGoals!==k.awayGoals) return k.homeGoals>k.awayGoals?k.home:k.away;
+    return null;
+  }
+  function healStuckLive(list){
+    const STALE_MS = 2.75*3600*1000;                 // 2h45m past kickoff = certainly over
+    let now; try { now = Date.now(); } catch(e){ now = 0; }
+    return (list||[]).map(k=>{
+      if(k.status!=='live' || !k.kickoffUTC) return k;
+      if(now - new Date(k.kickoffUTC).getTime() < STALE_MS) return k;   // still within a real match window
+      const win = koWinnerFromScore(k);
+      if(!win) return k;                             // level, shootout pending → genuinely still live
+      return Object.assign({}, k, { status:'final', winnerId:win });
+    });
+  }
+
   async function fetchTournamentState(){
     const seed = {
       teams: TEAMS,
@@ -312,7 +336,7 @@
         teams: TEAMS,                       // presentation (flag/colour/rating/ES) stays local
         groupMatches: snap.groupMatches,    // real results replace the projected schedule
         knockout: KO,                       // bracket geometry/feeders stay local…
-        knockoutFixtures: snap.knockoutFixtures || [],  // …results overlay onto it (§ resolve)
+        knockoutFixtures: healStuckLive(snap.knockoutFixtures || []),  // …results overlay onto it (§ resolve)
         koByRound: snap.koByRound || null,  // real kickoff time per knockout slot
         squads: snap.squads || null,
         source: 'live',
