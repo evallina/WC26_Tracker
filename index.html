@@ -303,6 +303,33 @@ class Component extends DCLogic {
     else { sideA=real.home; sideB=real.away; }
     return {real, sideA, sideB};
   }
+  // Current leader of an undecided fixture: the declared winner, else the penalty leader,
+  // else the goals leader. null when level or unplayed. (Team id, from the feed's sides.)
+  liveLeader(r){
+    if(!r || r.status==='scheduled') return null;
+    if(r.winnerId) return r.winnerId;
+    if(r.penHome!=null && r.penAway!=null && r.penHome!==r.penAway) return r.penHome>r.penAway?r.home:r.away;
+    if(r.homeGoals!=null && r.awayGoals!=null && r.homeGoals!==r.awayGoals) return r.homeGoals>r.awayGoals?r.home:r.away;
+    return null;
+  }
+  // Team a feeder resolves to FOR DISPLAY → {id, prov}. prov=true is a *provisional* leader:
+  // the team currently winning a still-live match, shown faded in the next round before the
+  // result is final (so the bracket advances the leader immediately, not an hour later).
+  provTeam(feeder){
+    const id = this.resolveTeam(feeder);
+    if(id) return {id, prov:false};                       // already certain (final winner)
+    if(feeder.type==='matchWinner' || feeder.type==='matchLoser'){
+      const m = this.state.data.knockout.find(k=>k.slot===feeder.ref);
+      if(m){ const r = this.koFixtureFor(m); const lead = this.liveLeader(r);
+        if(lead && r.status==='live'){
+          if(feeder.type==='matchWinner') return {id:lead, prov:true};
+          const other = (r.home===lead)?r.away:r.home;    // 3rd-place feed takes the loser
+          if(other) return {id:other, prov:true};
+        }
+      }
+    }
+    return {id:null, prov:false};
+  }
 
   /* ---------- i18n ---------- */
   get T(){
@@ -1479,17 +1506,21 @@ class Component extends DCLogic {
       const subFor=(f)=> f.type==='groupWinner'?T.winner(f.ref):f.type==='groupRunnerUp'?T.runnerUp(f.ref):
         f.type==='bestThird'?(S.lang==='es'?'Mejor 3.º':'Best 3rd'):
         f.type==='matchWinner'?((S.lang==='es'?'Ganador M':'Winner M')+koNo(f.ref)):'';
-      const row=(id,f,ok,win)=>{ const tm=(ok&&id)?window.WC.byId[id]:null; const col=tm?this.hlColor(id):null;
-        const g = (scored&&tm) ? (id===real.home?real.homeGoals:real.awayGoals) : null;
-        return h('div',{onClick:tm?(e)=>{e.stopPropagation();this.openTeamMenu(id, e);}:undefined,
-          style:{display:'flex',alignItems:'center',gap:10,cursor:tm?'pointer':'default',padding:`${cv}px 0`,opacity:decided&&!win?0.5:1}},
+      const row=(id,f,ok,win)=>{
+        let tm=(ok&&id)?window.WC.byId[id]:null, prov=false, rid=id;
+        if(!tm){ const p=this.provTeam(f); if(p.id){ tm=window.WC.byId[p.id]; prov=p.prov; rid=p.id; } }
+        const col=tm?this.hlColor(rid):null;
+        const g = (scored&&tm&&!prov) ? (rid===real.home?real.homeGoals:real.awayGoals) : null;
+        return h('div',{onClick:tm?(e)=>{e.stopPropagation();this.openTeamMenu(rid, e);}:undefined,
+          style:{display:'flex',alignItems:'center',gap:10,cursor:tm?'pointer':'default',padding:`${cv}px 0`,
+            opacity: prov?0.5:(decided&&!win?0.5:1)}},
           h('div',{style:Object.assign({display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0},
             col?{border:`2.5px solid ${this.vivid(col)}`,borderRadius:11,padding:'2px 8px 2px 5px',margin:'-3px 0'}:{})},
             tm?this.flagToken(C,tm,26,{gold:tm.isWorldCupWinner}):h('span',{style:{width:26,height:26,borderRadius:'50%',border:`1px dashed ${C.rule}`,flex:'0 0 auto'}}),
             h('div',{style:{minWidth:0,flex:1}},
               h('div',{style:{fontWeight:win?700:600,fontSize:D.tsTeam,color:tm?C.fg:C.faint2}}, tm?this.teamName(C,tm,{bold:true,size:D.tsTeam}):tbd),
-              h('div',{style:{fontSize:D.tsSub,color:C.faint,marginTop:1}}, subFor(f)))),
-          (scored&&tm)?this.scoreCell(C,g,{size:D.tsScore},real,id):null);
+              h('div',{style:{fontSize:D.tsSub,color:C.faint,marginTop:1}}, prov?(subFor(f)+(S.lang==='es'?' · va ganando':' · leading')):subFor(f)))),
+          (scored&&tm&&!prov)?this.scoreCell(C,g,{size:D.tsScore},real,id):null);
       };
       const tl = this.tlMatch(m);   // on the timeline's selected day → accent highlight
       const geom = (S.cardGeom||{})[m.slot];
@@ -1604,7 +1635,8 @@ class Component extends DCLogic {
     const {real, sideA, sideB} = this.slotMatch(m);            // feed-truth when a result exists
     const homeOk = !!real || this.sideSettled(m.homeFeeder);   // this side's team is confirmed
     const awayOk = !!real || this.sideSettled(m.awayFeeder);
-    const settled = homeOk || awayOk;                          // show as soon as one side qualifies
+    const provA = this.provTeam(m.homeFeeder), provB = this.provTeam(m.awayFeeder);   // live leaders
+    const settled = homeOk || awayOk || provA.prov || provB.prov;  // show once a side qualifies (or leads live)
     if(settled){
       const scored  = real && real.status!=='scheduled' && real.homeGoals!=null;
       const live    = real && real.status==='live';
@@ -1613,16 +1645,19 @@ class Component extends DCLogic {
       const tStr = this.fmtTimeAt(inst, m.venueTz);
       const dStr = inst ? this.fmtDayAt(inst, m.venueTz) : this.fmtMonthDay(m.date.iso);
       const tbd = this.state.lang==='es'?'Por definir':'TBD';
-      const row=(id, ok, win)=>{ const tm=(ok&&id)?window.WC.byId[id]:null; const col=tm?this.hlColor(id):null;
-        const g = (scored&&tm) ? (id===real.home?real.homeGoals:real.awayGoals) : null;
-        return h('div',{onClick: tm?(e)=>{e.stopPropagation();this.openTeamMenu(id, e);}:undefined,
+      const row=(id, ok, win, feeder)=>{
+        let tm=(ok&&id)?window.WC.byId[id]:null, prov=false, rid=id;
+        if(!tm && feeder){ const p=this.provTeam(feeder); if(p.id){ tm=window.WC.byId[p.id]; prov=p.prov; rid=p.id; } }
+        const col=tm?this.hlColor(rid):null;
+        const g = (scored&&tm&&!prov) ? (rid===real.home?real.homeGoals:real.awayGoals) : null;
+        return h('div',{onClick: tm?(e)=>{e.stopPropagation();this.openTeamMenu(rid, e);}:undefined,
           style:{display:'flex',alignItems:'center',gap:8,cursor:tm?'pointer':'default',padding:'4px 2px',
-            opacity: decided&&!win?0.45:1}},
+            opacity: prov?0.5:(decided&&!win?0.45:1)}},
           h('div',{style:Object.assign({display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0},
             col?{border:`2px solid ${this.vivid(col)}`,borderRadius:9,padding:'1px 6px 1px 3px',margin:'-2px 0'}:{})},
             tm?this.flagToken(C,tm,20,{gold:tm.isWorldCupWinner}):h('span',{style:{width:20,height:20,borderRadius:'50%',flex:'0 0 auto',border:`1px dashed ${C.rule}`}}),
             h('span',{style:{flex:1,minWidth:0,fontSize:(isFinal?14.5:13)*sm,fontWeight:win?700:500,color:tm?C.fg:C.faint2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, tm?this.nm(tm):tbd)),
-          (scored&&tm)?this.scoreCell(C,g,{size:(isFinal?20:14)*sm},real,id):null);
+          (scored&&tm&&!prov)?this.scoreCell(C,g,{size:(isFinal?20:14)*sm},real,id):null);
       };
       const tl = this.tlMatch(m);
       return h('div',{style:{background: tl?this.rgba(C.accent,S.theme==='dark'?0.12:0.07):C.panel,
@@ -1635,8 +1670,8 @@ class Component extends DCLogic {
           h('div',{style:{marginTop:2}},
             live?h('span',{style:{fontSize:10*sm,color:C.accent,fontWeight:700,letterSpacing:'0.04em'}},'● '+(real.minute?real.minute+"'":'LIVE'))
               :h('span',{style:{fontSize:10*sm,color:C.faint2}}, dStr+(tStr?' · '+tStr:'')))),
-        row(sideA, homeOk, real&&real.winnerId===sideA),
-        row(sideB, awayOk, real&&real.winnerId===sideB),
+        row(sideA, homeOk, real&&real.winnerId===sideA, m.homeFeeder),
+        row(sideB, awayOk, real&&real.winnerId===sideB, m.awayFeeder),
         this.koTag(real)?h('div',{style:{marginTop:5,fontSize:8.5*sm,letterSpacing:'0.14em',textTransform:'uppercase',color:C.faint2,textAlign:'right'}},'['+this.koTag(real)+']'):null);
     }
     const pInst = this.koInst(m, null);
