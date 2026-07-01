@@ -61,7 +61,7 @@ class Component extends DCLogic {
       theme:'light', accent:'#42D674', lang:'en',
       highlights:[], hoverTeam:null, selectedTeam:null,
       menu:null, menuAnchor:null, teamMenu:null, showBest3:false,
-      winW:(typeof window!=='undefined'&&window.innerWidth)||1280, mobileMenu:false,
+      winW:(typeof window!=='undefined'&&window.innerWidth)||1280, mobileMenu:false, groupsOpen:false,
       convertTz:false, tzTarget:tz, autoTz:tz,
       youPlay:false, picks:{}, themeBeforePlay:null,
       timeline:false, tlIso:null,
@@ -649,13 +649,19 @@ class Component extends DCLogic {
           ()=>this.setState({selectedTeam:id, teamMenu:null}))));
   }
 
-  sectionHeader(C, num, label, right){
+  sectionHeader(C, num, label, right, opts={}){
     const h = React.createElement;
+    const title = h('h2',{style:{margin:0,fontSize:34,fontWeight:700,letterSpacing:'-0.02em',lineHeight:1}},label);
+    const titleRow = opts.onToggle
+      ? h('button',{onClick:opts.onToggle, className:'wcbtn', title:opts.collapsed?'Expand':'Collapse',
+          style:{display:'flex',alignItems:'center',gap:12,background:'transparent',border:'none',cursor:'pointer',padding:0,color:C.fg,font:'inherit'}},
+          title,
+          h('span',{style:{display:'inline-flex',color:C.faint2,transition:'transform 200ms ease',
+            transform:opts.collapsed?'rotate(-90deg)':'rotate(0deg)'}}, this.icon('chevron',26)))
+      : h('div',{style:{display:'flex',alignItems:'baseline',gap:16}}, title);
     return h('div',{style:{display:'flex',alignItems:'flex-end',justifyContent:'space-between',
-      gap:20,padding:'46px 0 8px',borderBottom:`1px solid ${C.rule}`,marginBottom:26}},
-      h('div',{style:{display:'flex',alignItems:'baseline',gap:16}},
-        h('h2',{style:{margin:0,fontSize:34,fontWeight:700,letterSpacing:'-0.02em',lineHeight:1}},label)),
-      right||null);
+      gap:20,padding:'46px 0 8px',borderBottom:`1px solid ${C.rule}`,marginBottom: opts.collapsed?0:26}},
+      titleRow, right||null);
   }
 
   /* ---------- CONTROLS ---------- */
@@ -676,6 +682,7 @@ class Component extends DCLogic {
       case 'refresh':return svg(h('path',{d:'M21 12a9 9 0 1 1-2.64-6.36'}), h('path',{d:'M21 4v5h-5'}));
       case 'menu':   return svg(h('line',{x1:3,y1:6,x2:21,y2:6}), h('line',{x1:3,y1:12,x2:21,y2:12}), h('line',{x1:3,y1:18,x2:21,y2:18}));
       case 'close':  return svg(h('line',{x1:6,y1:6,x2:18,y2:18}), h('line',{x1:18,y1:6,x2:6,y2:18}));
+      case 'chevron':return svg(h('polyline',{points:'6 9 12 15 18 9'}));
     }
     return null;
   }
@@ -900,13 +907,15 @@ class Component extends DCLogic {
   /* ---------- GROUPS ---------- */
   renderGroups(C){
     const h = React.createElement, T = this.T, S = this.state;
+    const open = S.groupsOpen;
+    const best3 = h('button',{className:'wcbtn',onClick:(e)=>{e.stopPropagation();this.setState({showBest3:true});},
+      style:{font:'inherit',fontSize:12.5,cursor:'pointer',padding:'9px 16px',borderRadius:10,
+        border:`1px solid ${C.rule}`,background:'transparent',color:C.fg}}, T.best3+' →');
     return h('section', {style:{scrollSnapAlign:'start'}},
-      this.sectionHeader(C,'01',T.groups,
-        h('button',{className:'wcbtn',onClick:()=>this.setState({showBest3:true}),
-          style:{font:'inherit',fontSize:12.5,cursor:'pointer',padding:'9px 16px',borderRadius:10,
-            border:`1px solid ${C.rule}`,background:'transparent',color:C.fg}}, T.best3+' →')),
-      h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:'30px 34px'}},
-        window.WC.GROUPS.map(g=>this.renderGroupTable(C,g))));
+      this.sectionHeader(C,'01',T.groups, open?best3:null,
+        {collapsed:!open, onToggle:()=>this.setState({groupsOpen:!open})}),
+      open ? h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:'30px 34px'}},
+        window.WC.GROUPS.map(g=>this.renderGroupTable(C,g))) : null);
   }
   renderGroupTable(C,g){
     const h = React.createElement, S = this.state, T = this.T;
