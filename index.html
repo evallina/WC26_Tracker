@@ -1074,11 +1074,12 @@ class Component extends DCLogic {
         h('span',{style:{fontSize:z(9),lineHeight:z(12)+'px',letterSpacing:'0.16em',fontWeight:700,color:on?C.accent:C.faint2}}, on?'ON':'OFF')),
       h('div',{style:{height:gap}}),
       h('div',{style:{height:trackH,display:'flex',alignItems:'center'}}, circle));
+    // one date label, at the selector's position (the per-day row overlapped on mobile)
+    const selP = sel/(n-1), selTx = selP<0.06?'0':selP>0.94?'-100%':'-50%';
     const labels = h('div',{style:{position:'relative',height:lblH,marginBottom:gap}},
-      days.map((d,i)=>h('div',{key:d.iso,style:{position:'absolute',left:`${i/(n-1)*100}%`,transform:'translateX(-50%)',
-        fontSize:z(8.5),lineHeight:z(12)+'px',letterSpacing:'0.01em',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums',
-        fontWeight:(on&&i===sel)||d.hasMatch?700:400,
-        color:(on&&i===sel)?C.fg:(d.hasMatch?C.faint:C.faint2)}}, d.md)));
+      h('div',{style:{position:'absolute',left:`${selP*100}%`,transform:`translateX(${selTx})`,
+        fontSize:z(10),lineHeight:z(12)+'px',letterSpacing:'0.03em',whiteSpace:'nowrap',fontVariantNumeric:'tabular-nums',
+        fontWeight:700, color:on?C.fg:C.faint2}}, cur.md));
     const body = h('div',{style:{flex:1,minWidth:0,opacity:dim,transition:'opacity 140ms'}}, labels, track);
     return h('div',{style:{maxWidth:tlLen,margin:`${D.tlTop}px auto ${D.tlBot}px`,padding:'0 14px'}},
       h('div',{style:{textAlign:'center',fontSize:z(11),letterSpacing:'0.16em',textTransform:'uppercase',color:C.faint,marginBottom:D.tlTitleGap,opacity:dim,transition:'opacity 140ms'}},
@@ -1191,7 +1192,7 @@ class Component extends DCLogic {
     return {rowH,topPad,WL,WS,cols,centerX,r32Y,finalY,width,height};
   }
   // ORCHESTRATOR: builds the full or half bracket, scales it to fit the available
-  // width (never cropped), and adds the flip control + swipe on narrow screens.
+  // width (never cropped), and adds the full-width flip toggle on narrow screens.
   renderBracket(C){
     const h = React.createElement, S = this.state, T = this.T, youPlay = S.youPlay;
     const fmt = this.bracketFormats();
@@ -1230,24 +1231,20 @@ class Component extends DCLogic {
               style:{fontSize:8.5,letterSpacing:'0.14em',color:C.accent,fontWeight:700}},'· AUTO'):null):null)),
       this.renderTimeline(C, days),
       narrow?this.renderFlip(C):null,
-      h('div',{id:'wc-bk-outer', style:{width:'100%',overflowX:'auto',paddingBottom:14},
-        onTouchStart:(ev)=>{ this._tsX=ev.touches[0].clientX; this._tsY=ev.touches[0].clientY; },
-        onTouchEnd:(ev)=>{ if(this._tsX==null||!narrow) return; const t=ev.changedTouches[0];
-          const dx=t.clientX-this._tsX, dy=t.clientY-this._tsY; this._tsX=null;
-          if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)) this.setState({bkSide: dx<0?'R':'L'}); }},
-        stage));
+      h('div',{id:'wc-bk-outer', style:{width:'100%',overflowX:'auto',paddingBottom:14}}, stage));
   }
-  // segmented flip control (narrow screens) — switch which half is shown
+  // full-width pill toggle (narrow screens) — switch which half of the bracket is shown
   renderFlip(C){
     const h = React.createElement, S = this.state;
-    const tab=(side,label)=>h('button',{onClick:()=>this.setState({bkSide:side}),className:'wcbtn',
-      style:{font:'inherit',fontSize:12.5,cursor:'pointer',padding:'7px 15px',borderRadius:8,
-        border:`1px solid ${S.bkSide===side?C.accent:C.rule}`,
-        background:S.bkSide===side?this.rgba(C.accent,0.1):'transparent', color:S.bkSide===side?C.accent:C.fg}}, label);
-    return h('div',{style:{display:'flex',alignItems:'center',gap:9,marginBottom:16,flexWrap:'wrap'}},
-      tab('L', S.lang==='es'?'Lado izquierdo':'Left side'),
-      tab('R', S.lang==='es'?'Lado derecho':'Right side'),
-      h('span',{style:{fontSize:11,color:C.faint2}}, S.lang==='es'?'· desliza para cambiar':'· swipe to flip'));
+    const seg=(side,label)=>h('button',{onClick:()=>this.setState({bkSide:side}),className:'wcbtn',
+      style:{flex:1,font:'inherit',fontSize:13,fontWeight:S.bkSide===side?700:500,cursor:'pointer',
+        padding:'11px 0',borderRadius:999,border:'none',textAlign:'center',
+        background:S.bkSide===side?C.accent:'transparent', color:S.bkSide===side?'#fff':C.fg,
+        transition:'background 140ms,color 140ms'}}, label);
+    return h('div',{style:{display:'flex',width:'100%',gap:4,padding:4,marginBottom:16,borderRadius:999,
+      background:this.rgba(C.fg,0.06)}},
+      seg('L', S.lang==='es'?'Izquierda':'Left'),
+      seg('R', S.lang==='es'?'Derecha':'Right'));
   }
   // FULL mirrored bracket → {inner,labelRow,width,height}
   buildFull(C, fmt){
