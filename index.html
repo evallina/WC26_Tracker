@@ -61,6 +61,7 @@ class Component extends DCLogic {
       theme:'light', accent:'#42D674', lang:'en',
       highlights:[], hoverTeam:null, selectedTeam:null,
       menu:null, menuAnchor:null, teamMenu:null, showBest3:false,
+      winW:(typeof window!=='undefined'&&window.innerWidth)||1280, mobileMenu:false,
       convertTz:false, tzTarget:tz, autoTz:tz,
       youPlay:false, picks:{}, themeBeforePlay:null,
       timeline:false, tlIso:null,
@@ -135,7 +136,7 @@ class Component extends DCLogic {
       if(this.state.menu && !e.target.closest('[data-wc-menu]') && !e.target.closest('[data-wc-menubtn]')) this.setState({menu:null});
     };
     document.addEventListener('click', this._onDocClick);
-    this._onResize = ()=>{ this.remeasure(); };
+    this._onResize = ()=>{ this.remeasure(); const w=window.innerWidth||0; if(w!==this.state.winW) this.setState({winW:w}); };
     window.addEventListener('resize', this._onResize);
     setTimeout(()=>this.remeasure(), 500);
     // refresh as soon as the tab becomes visible again, then resume polling
@@ -578,6 +579,8 @@ class Component extends DCLogic {
   ========================================================= */
   renderVals(){
     const h = React.createElement, C = this.C();
+    const mobile = this.state.winW < 720;    // phone: title + hamburger only
+    const hideTag = this.state.winW < 900;   // drop the tagline before things get tight
     // Inverted scheme for the header bar: dark in light mode, light in dark mode.
     const Ch = Object.assign({}, C, {
       surface: C.fg, fg: C.surface,
@@ -593,15 +596,16 @@ class Component extends DCLogic {
       borderBottom:`1px solid ${this.rgba(C.surface,0.12)}`, transition:'background 200ms ease-out,color 200ms ease-out' };
 
     if(!this.state.loaded){
-      return { rootStyle, headerStyle, tagline:this.T.tagline, controls:this.renderControls(Ch),
+      return { rootStyle, headerStyle, tagline:hideTag?'':this.T.tagline, controls:this.renderControls(Ch),
         app: h('div',{style:{padding:'120px 26px',textAlign:'center',color:C.faint,fontSize:14,letterSpacing:'0.1em',textTransform:'uppercase',animation:'wcfade .4s'}},
           h('span',{style:{display:'inline-block',width:13,height:13,border:`2px solid ${C.rule}`,borderTopColor:C.accent,borderRadius:'50%',marginRight:10,verticalAlign:'middle',animation:'wcspin .8s linear infinite'}}),
           'Computing 4,000 simulations') };
     }
 
-    return { rootStyle, headerStyle, tagline:this.T.tagline,
+    return { rootStyle, headerStyle, tagline:hideTag?'':this.T.tagline,
       controls: this.renderControls(Ch),
       app: h(React.Fragment, null,
+        (mobile && this.state.mobileMenu) ? this.renderMobileMenu(C) : null,
         this.state.youPlay ? this.renderYouPlayBar(C) : null,
         h('div', { id:'wc-capture', style:{ padding: this.state.youPlay?'58px 26px 90px':'0 26px 90px', background:C.surface, transition:'padding 180ms ease-out' } },
           h('div', { style:{ opacity:this.state.youPlay?0.32:1, pointerEvents:this.state.youPlay?'none':'auto', transition:'opacity 180ms ease-out' } }, this.renderGroups(C)),
@@ -670,6 +674,8 @@ class Component extends DCLogic {
       case 'moon':   return svg(h('path',{d:'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z'}));
       case 'camera': return svg(h('path',{d:'M3 9a2 2 0 0 1 2-2h2l1.3-1.7A1 1 0 0 1 11.1 5h1.8a1 1 0 0 1 .8.3L15 7h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'}), h('circle',{cx:12,cy:13,r:3}));
       case 'refresh':return svg(h('path',{d:'M21 12a9 9 0 1 1-2.64-6.36'}), h('path',{d:'M21 4v5h-5'}));
+      case 'menu':   return svg(h('line',{x1:3,y1:6,x2:21,y2:6}), h('line',{x1:3,y1:12,x2:21,y2:12}), h('line',{x1:3,y1:18,x2:21,y2:18}));
+      case 'close':  return svg(h('line',{x1:6,y1:6,x2:18,y2:18}), h('line',{x1:18,y1:6,x2:6,y2:18}));
     }
     return null;
   }
@@ -692,6 +698,13 @@ class Component extends DCLogic {
     const set = (k,v)=>()=>this.setState({[k]:v, menu:null});
     const playLabel = (S.lang==='es'?'Haz tu cuadro':'Play your bracket');
     const ib = (o)=>this.iconBtn(C,o);
+    // narrow screens: one hamburger that opens the full-page mobile menu (below)
+    if(S.winW < 720){
+      return h('div',{style:{display:'flex',alignItems:'center',justifyContent:'flex-end'}},
+        this.iconBtn(C,{title:'Menu', size:36, active:S.mobileMenu,
+          icon:this.icon(S.mobileMenu?'close':'menu', 19),
+          onClick:()=>this.setState({mobileMenu:!S.mobileMenu, menu:null})}));
+    }
     return h('div',{style:{display:'flex',alignItems:'center',gap:7,justifyContent:'flex-end'}},
       ib({title:T.highlight, icon:this.icon('marker'), menu:1, badge:S.highlights.length||null,
         active:S.menu==='hl'||S.highlights.length>0, onClick:(e)=>this.openMenu('hl', e)}),
@@ -711,10 +724,47 @@ class Component extends DCLogic {
           display:'inline-flex',alignItems:'center',justifyContent:'center',
           background:C.accent,color:'#fff',whiteSpace:'nowrap'}}, playLabel+' →'));
   }
+  // Full-page (below the header) mobile menu: a blurred translucent surface that shows a
+  // hint of the page behind it, with every header action as a tappable row.
+  renderMobileMenu(C){
+    const h = React.createElement, T = this.T, S = this.state;
+    const headH = (typeof document!=='undefined' && (document.querySelector('header')||{}).offsetHeight) || 50;
+    const close = ()=>this.setState({mobileMenu:false});
+    const openPanel = (name)=>this.setState({menu:name, menuAnchor:{top:headH+6, left:12}, mobileMenu:false});
+    const row=(icon,label,opts={})=>h('button',{key:label, onClick:opts.onClick, className:'wcbtn',
+      style:{display:'flex',alignItems:'center',gap:15,width:'100%',font:'inherit',textAlign:'left',cursor:'pointer',
+        padding:'16px 20px',border:'none',background:'transparent',color:C.fg,
+        borderBottom:opts.last?'none':`1px solid ${this.rgba(C.fg,0.08)}`}},
+      h('span',{style:{display:'inline-flex',width:22,justifyContent:'center',color:opts.active?C.accent:C.faint}}, icon),
+      h('span',{style:{flex:1,fontSize:15.5,fontWeight:500}}, label),
+      opts.badge?h('span',{style:{minWidth:20,height:20,padding:'0 6px',borderRadius:10,background:C.accent,color:'#fff',
+        fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}}, opts.badge):null,
+      opts.value?h('span',{style:{fontSize:13.5,color:C.faint,fontWeight:500}}, opts.value):null,
+      opts.chevron?h('span',{style:{color:C.faint2,fontSize:20,lineHeight:1,marginLeft:2}}, '›'):null);
+    const es = S.lang==='es';
+    return h('div',{onClick:close, style:{position:'fixed', top:headH, left:0, right:0, bottom:0, zIndex:70,
+      background:this.rgba(C.surface, S.theme==='dark'?0.5:0.55),
+      backdropFilter:'blur(18px) saturate(1.15)', WebkitBackdropFilter:'blur(18px) saturate(1.15)',
+      animation:'wcfade .16s ease-out', overflowY:'auto'}},
+      h('div',{onClick:e=>e.stopPropagation(), style:{padding:'16px 16px 28px'}},
+        // primary action
+        h('button',{onClick:()=>{ S.youPlay?this.exitYouPlay():this.enterYouPlay(); this.setState({mobileMenu:false}); },
+          style:{display:'flex',alignItems:'center',justifyContent:'center',width:'100%',font:'inherit',cursor:'pointer',
+            height:50,marginBottom:14,borderRadius:14,border:'none',fontSize:15.5,fontWeight:700,background:C.accent,color:'#fff'}},
+          S.youPlay?(es?'Salir del predictor':'Exit predictor'):((es?'Haz tu cuadro':'Play your bracket')+' →')),
+        // grouped actions
+        h('div',{style:{borderRadius:14, overflow:'hidden', border:`1px solid ${this.rgba(C.fg,0.10)}`, background:this.rgba(C.fg, S.theme==='dark'?0.04:0.02)}},
+          row(this.icon('marker'), T.highlight, {badge:S.highlights.length||null, active:S.highlights.length>0, chevron:true, onClick:()=>openPanel('hl')}),
+          row(this.icon('globe'), T.timezone, {value:S.convertTz?this.tzAbbr(S.tzTarget):T.officialTimes, active:S.convertTz, chevron:true, onClick:()=>openPanel('tz')}),
+          row(h('span',{style:{fontSize:11,fontWeight:800,letterSpacing:'0.04em'}}, es?'ES':'EN'), T.language, {value:es?'Español':'English', onClick:()=>this.setState({lang:es?'en':'es'})}),
+          row(this.icon(S.theme==='dark'?'sun':'moon'), es?'Tema':'Theme', {value:S.theme==='dark'?(es?'Oscuro':'Dark'):(es?'Claro':'Light'), onClick:()=>this.setState({theme:S.theme==='dark'?'light':'dark'})}),
+          row(this.icon('camera'), T.screenshot, {onClick:()=>{ this.setState({mobileMenu:false}); setTimeout(()=>this.exportPng(), 80); }}),
+          row(this.icon('refresh'), T.refresh, {active:S.refreshing, last:true, onClick:()=>{ this.refreshLive(); this.setState({mobileMenu:false}); }}))));
+  }
 
   /* ---------- MENUS ---------- */
   menuPanel(C, children){
-    const W = 268, a = this.state.menuAnchor;
+    const W = Math.min(268, ((typeof window!=='undefined'&&window.innerWidth)||1280)-24), a = this.state.menuAnchor;
     const vw = (typeof window!=='undefined' && window.innerWidth) || 1280;
     const pos = a
       ? { top:a.top, left:Math.max(12, Math.min(a.left, vw - W - 12)) }   // below its button, clamped
