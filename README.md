@@ -6,7 +6,7 @@ Monte-Carlo qualification simulator, the complete knockout bracket with real ven
 kickoff times, a "play your bracket" predictor, a champion crest, and timezone /
 language / light-dark controls.
 
-**Live site:** https://evallina.github.io/WC26_Tracker/ &nbsp;<sub>(goes live once GitHub Pages is enabled)</sub>
+**Live site:** **https://evallina.github.io/WC26_Tracker/**
 
 <!-- Screenshot: drop an image at img/screenshot.png and uncomment:
 ![WC26 Tracker](img/screenshot.png)
