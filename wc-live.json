@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T01:19:39.429Z",
+  "generatedAt": "2026-07-03T05:01:29.460Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1216,10 +1216,10 @@
       "city": "",
       "status": "final",
       "homeGoals": 2,
-      "awayGoals": 2,
+      "awayGoals": 1,
       "minute": null,
       "round": "R32",
-      "winnerId": null,
+      "winnerId": "POR",
       "duration": "REGULAR",
       "penHome": null,
       "penAway": null
@@ -1231,12 +1231,12 @@
       "kickoffUTC": "2026-07-03T03:00:00Z",
       "stadium": "",
       "city": "",
-      "status": "scheduled",
-      "homeGoals": null,
-      "awayGoals": null,
+      "status": "final",
+      "homeGoals": 2,
+      "awayGoals": 0,
       "minute": null,
       "round": "R32",
-      "winnerId": null,
+      "winnerId": "SUI",
       "duration": "REGULAR",
       "penHome": null,
       "penAway": null
