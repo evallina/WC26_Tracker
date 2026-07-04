@@ -372,26 +372,35 @@ async function runFootballData() {
           const hasET  = et.home != null || et.away != null;
           const hasPen = pen.home != null || pen.away != null;
           const duration = hasPen ? 'PENALTY_SHOOTOUT' : hasET ? 'EXTRA_TIME' : (sc.duration || 'REGULAR');
-          // The *match* score we display is the level score the game went to a shootout on
-          // (regulation + extra time). football-data bakes the shootout tally INTO `fullTime`
-          // for penalty matches (e.g. 1-1 reported as 5-6), so for those we rebuild it.
+          // The *match* score we display is the level score at which it went to a shootout
+          // (regulation + extra time). football-data bakes the shootout INTO `fullTime`
+          // (fullTime = level + shootout goals), so fullTime is the AUTHORITATIVE outcome —
+          // even when `winner` is null and the `penalties` field is garbage/tied (a real
+          // free-tier bug: e.g. fullTime 3-5 but penalties reported as 4-4). So we rebuild
+          // the level score from regulation+ET and the true shootout tally from fullTime.
           let homeGoals = base.homeGoals, awayGoals = base.awayGoals;
+          let penHome = pen.home ?? null, penAway = pen.away ?? null;
           if (hasPen) {
-            if (reg.home != null) { homeGoals = (reg.home || 0) + (et.home || 0); awayGoals = (reg.away || 0) + (et.away || 0); }
-            else if (ft.home != null && pen.home != null) { homeGoals = ft.home - pen.home; awayGoals = ft.away - pen.away; }
+            if (reg.home != null) {
+              homeGoals = (reg.home || 0) + (et.home || 0);
+              awayGoals = (reg.away || 0) + (et.away || 0);
+              if (ft.home != null && ft.away != null) { penHome = ft.home - homeGoals; penAway = ft.away - awayGoals; }
+            } else if (ft.home != null && pen.home != null) {
+              homeGoals = ft.home - pen.home; awayGoals = ft.away - pen.away;   // no breakdown → best effort
+            }
           }
-          // Declare a winner only once final; prefer the feed's, else derive from the
-          // shootout tally, else from the level score (covers the feed omitting `winner`).
+          // Declare a winner only once final; prefer the feed's, else the fullTime outcome
+          // (encodes the shootout winner), else the shootout tally, else the level score.
           let winnerId = null;
           if (status === 'final') {
             if (sc.winner === 'HOME_TEAM') winnerId = home;
             else if (sc.winner === 'AWAY_TEAM') winnerId = away;
-            else if (hasPen && pen.home != null && pen.away != null && pen.home !== pen.away) winnerId = pen.home > pen.away ? home : away;
+            else if (hasPen && ft.home != null && ft.away != null && ft.home !== ft.away) winnerId = ft.home > ft.away ? home : away;
+            else if (penHome != null && penAway != null && penHome !== penAway) winnerId = penHome > penAway ? home : away;
             else if (homeGoals != null && awayGoals != null && homeGoals !== awayGoals) winnerId = homeGoals > awayGoals ? home : away;
           }
           knockoutFixtures.push({
-            ...base, round, homeGoals, awayGoals, winnerId, duration,
-            penHome: pen.home ?? null, penAway: pen.away ?? null,
+            ...base, round, homeGoals, awayGoals, winnerId, duration, penHome, penAway,
           });
         }
       }
