@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T01:10:46.894Z",
+  "generatedAt": "2026-07-04T04:34:26.860Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1282,12 +1282,12 @@
       "kickoffUTC": "2026-07-04T01:30:00Z",
       "stadium": "",
       "city": "",
-      "status": "scheduled",
-      "homeGoals": null,
-      "awayGoals": null,
+      "status": "final",
+      "homeGoals": 2,
+      "awayGoals": 0,
       "minute": null,
       "round": "R32",
-      "winnerId": null,
+      "winnerId": "COL",
       "duration": "REGULAR",
       "penHome": null,
       "penAway": null
