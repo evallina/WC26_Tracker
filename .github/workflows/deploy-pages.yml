@@ -1,0 +1,39 @@
+name: Deploy to Pages
+
+# Deploys the static site on every push to main (including the bot's data commits).
+# Uses a controlled concurrency group so a new push cancels an in-flight deploy instead
+# of colliding with it — the legacy branch build was failing intermittently with
+# "Deployment failed, try again later" whenever two deploys overlapped, freezing the site.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true      # newest data wins; drop a superseded in-flight deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site (exclude repo/CI metadata)
+        run: |
+          mkdir _site
+          rsync -a --exclude='.git' --exclude='.github' --exclude='_site' ./ _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
