@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T04:54:01.769Z",
+  "generatedAt": "2026-07-04T05:09:39.009Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1253,9 +1253,9 @@
       "awayGoals": 1,
       "minute": null,
       "round": "R32",
-      "winnerId": null,
+      "winnerId": "EGY",
       "duration": "PENALTY_SHOOTOUT",
-      "penHome": 4,
+      "penHome": 2,
       "penAway": 4
     },
     {
