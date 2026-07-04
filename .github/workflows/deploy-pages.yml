@@ -30,13 +30,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url || steps.deploy1.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Assemble site (exclude repo/CI metadata)
         run: |
           mkdir _site
           rsync -a --exclude='.git' --exclude='.github' --exclude='_site' ./ _site/
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       # Pages' deployment API intermittently returns "Deployment failed, try again
@@ -44,10 +44,10 @@ jobs:
       # transient error, wait for it to settle and retry — so a blip never leaves the
       # site stale until the next hourly refresh.
       - id: deploy1
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
       - if: steps.deploy1.outcome == 'failure'
         run: echo "First deploy failed (likely transient) — waiting to retry." && sleep 45
       - id: deployment
         if: steps.deploy1.outcome == 'failure'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
