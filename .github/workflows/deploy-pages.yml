@@ -7,7 +7,11 @@ name: Deploy to Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main]              # human / gh pushes (real token) deploy directly
+  workflow_run:
+    workflows: ["Refresh live data"]   # the bot commits with GITHUB_TOKEN, which can't
+    types: [completed]                 # trigger `push` workflows — so deploy after the
+                                       # refresh workflow finishes instead
   workflow_dispatch: {}
 
 permissions:
