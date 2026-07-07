@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T21:41:54.675Z",
+  "generatedAt": "2026-07-07T22:42:41.680Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1424,7 +1424,7 @@
       "minute": null,
       "round": "R16",
       "winnerId": null,
-      "duration": "REGULAR",
+      "duration": "EXTRA_TIME",
       "penHome": null,
       "penAway": null
     },
