@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-08T04:25:53.689Z",
+  "generatedAt": "2026-07-08T06:43:42.255Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
     "groupMatches": 72,
     "played": 72,
     "live": 0,
-    "knockout": 27,
+    "knockout": 28,
     "squads": 0
   },
   "groupMatches": [
@@ -1467,6 +1467,23 @@
       "home": "NOR",
       "away": "ENG",
       "kickoffUTC": "2026-07-11T21:00:00Z",
+      "stadium": "",
+      "city": "",
+      "status": "scheduled",
+      "homeGoals": null,
+      "awayGoals": null,
+      "minute": null,
+      "round": "QF",
+      "winnerId": null,
+      "duration": "REGULAR",
+      "penHome": null,
+      "penAway": null
+    },
+    {
+      "apiId": 537386,
+      "home": "ARG",
+      "away": "SUI",
+      "kickoffUTC": "2026-07-12T01:00:00Z",
       "stadium": "",
       "city": "",
       "status": "scheduled",
