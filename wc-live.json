@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T21:42:44.287Z",
+  "generatedAt": "2026-07-09T22:54:54.832Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1435,12 +1435,12 @@
       "kickoffUTC": "2026-07-09T20:00:00Z",
       "stadium": "",
       "city": "",
-      "status": "live",
+      "status": "final",
       "homeGoals": 2,
       "awayGoals": 0,
       "minute": null,
       "round": "QF",
-      "winnerId": null,
+      "winnerId": "FRA",
       "duration": "REGULAR",
       "penHome": null,
       "penAway": null
