@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T20:03:37.120Z",
+  "generatedAt": "2026-07-10T21:14:42.312Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1452,12 +1452,12 @@
       "kickoffUTC": "2026-07-10T19:00:00Z",
       "stadium": "",
       "city": "",
-      "status": "live",
-      "homeGoals": 1,
+      "status": "final",
+      "homeGoals": 2,
       "awayGoals": 1,
       "minute": null,
       "round": "QF",
-      "winnerId": null,
+      "winnerId": "ESP",
       "duration": "REGULAR",
       "penHome": null,
       "penAway": null
