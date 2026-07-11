@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-11T05:59:15.063Z",
+  "generatedAt": "2026-07-11T07:56:04.948Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
     "groupMatches": 72,
     "played": 72,
     "live": 0,
-    "knockout": 28,
+    "knockout": 29,
     "squads": 0
   },
   "groupMatches": [
@@ -1491,6 +1491,23 @@
       "awayGoals": null,
       "minute": null,
       "round": "QF",
+      "winnerId": null,
+      "duration": "REGULAR",
+      "penHome": null,
+      "penAway": null
+    },
+    {
+      "apiId": 537387,
+      "home": "FRA",
+      "away": "ESP",
+      "kickoffUTC": "2026-07-14T19:00:00Z",
+      "stadium": "",
+      "city": "",
+      "status": "scheduled",
+      "homeGoals": null,
+      "awayGoals": null,
+      "minute": null,
+      "round": "SF",
       "winnerId": null,
       "duration": "REGULAR",
       "penHome": null,
