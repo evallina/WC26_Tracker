@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T18:19:20.627Z",
+  "generatedAt": "2026-07-15T19:39:43.546Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1520,9 +1520,9 @@
       "kickoffUTC": "2026-07-15T19:00:00Z",
       "stadium": "",
       "city": "",
-      "status": "scheduled",
-      "homeGoals": null,
-      "awayGoals": null,
+      "status": "live",
+      "homeGoals": 0,
+      "awayGoals": 0,
       "minute": null,
       "round": "SF",
       "winnerId": null,
