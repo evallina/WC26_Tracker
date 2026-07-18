@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-18T21:11:28.354Z",
+  "generatedAt": "2026-07-18T22:05:34.458Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1539,7 +1539,7 @@
       "city": "",
       "status": "live",
       "homeGoals": 0,
-      "awayGoals": 1,
+      "awayGoals": 4,
       "minute": null,
       "round": "TP",
       "winnerId": null,
