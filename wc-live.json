@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T22:04:15.818Z",
+  "generatedAt": "2026-07-19T23:01:56.102Z",
   "source": "football-data.org",
   "season": 2026,
   "counts": {
@@ -1554,12 +1554,12 @@
       "kickoffUTC": "2026-07-19T19:00:00Z",
       "stadium": "",
       "city": "",
-      "status": "scheduled",
+      "status": "final",
       "homeGoals": 1,
       "awayGoals": 0,
       "minute": null,
       "round": "F",
-      "winnerId": null,
+      "winnerId": "ESP",
       "duration": "EXTRA_TIME",
       "penHome": null,
       "penAway": null
